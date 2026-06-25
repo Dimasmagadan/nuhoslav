@@ -1,0 +1,79 @@
+{% extends "base.html" %}
+{% block title %}Status — Odor{% endblock %}
+{% block content %}
+
+<div class="grid grid-cols-1 sm:grid-cols-2 gap-4 mb-8">
+
+    <div class="bg-gray-900 border border-gray-800 rounded-lg p-5">
+        <div class="text-xs text-gray-500 uppercase tracking-widest mb-3">Wind now</div>
+        {% if wind %}
+        <div class="text-4xl font-bold text-cyan-400">{{ wind.direction_deg | int }}°</div>
+        <div class="text-gray-400 mt-1 text-sm">
+            {{ wind.speed_ms }} m/s &middot; {{ wind.recorded_at.strftime('%H:%M UTC') }}
+        </div>
+        {% else %}
+        <div class="text-gray-600 text-sm">no data yet</div>
+        {% endif %}
+    </div>
+
+    <div class="bg-gray-900 border border-gray-800 rounded-lg p-5">
+        <div class="text-xs text-gray-500 uppercase tracking-widest mb-3">Tankers in port</div>
+        <div class="text-4xl font-bold text-amber-400">{{ active_tankers | length }}</div>
+        {% if active_tankers %}
+        <div class="text-gray-400 mt-1 text-sm">
+            {% for t in active_tankers %}
+            {{ t.name }}
+            <span class="text-gray-600">({{ "%.1f"|format(t.docked_hours) }}h)</span>{% if not loop.last %}, {% endif %}
+            {% endfor %}
+        </div>
+        {% else %}
+        <div class="text-gray-600 mt-1 text-sm">none detected</div>
+        {% endif %}
+    </div>
+
+</div>
+
+<div class="flex items-center justify-between mb-4">
+    <h2 class="text-sm font-semibold text-gray-300 uppercase tracking-widest">Recent alerts</h2>
+    <form method="post" action="/trigger-check">
+        <button type="submit"
+            class="text-xs bg-amber-500/10 hover:bg-amber-500/20 border border-amber-500/30 text-amber-400 px-3 py-1.5 rounded transition-colors">
+            run check now
+        </button>
+    </form>
+</div>
+
+{% if recent_alerts %}
+<div class="space-y-3">
+    {% for alert in recent_alerts %}
+    <div class="bg-gray-900 border border-gray-800 rounded-lg p-4">
+        <div class="flex items-start justify-between flex-wrap gap-2">
+            <div class="flex items-center gap-3">
+                <span class="text-amber-400 font-bold">{{ "%.2f"|format(alert.risk_score) }}</span>
+                <span class="text-gray-500 text-xs">{{ alert.sent_at.strftime('%Y-%m-%d %H:%M UTC') }}</span>
+            </div>
+            <div>
+                {% for fb in alert.feedback %}
+                    {% if fb.feedback_type == 'confirmed' %}
+                    <span class="text-xs text-green-400 bg-green-900/30 px-2 py-0.5 rounded">✅ confirmed</span>
+                    {% else %}
+                    <span class="text-xs text-red-400 bg-red-900/30 px-2 py-0.5 rounded">❌ false positive</span>
+                    {% endif %}
+                {% endfor %}
+            </div>
+        </div>
+        <div class="text-sm text-gray-400 mt-2 flex gap-4 flex-wrap">
+            <span>🚢 {{ alert.vessel.display_name if alert.vessel else '—' }}</span>
+            <span>💨 {{ alert.wind_direction | int }}° at {{ alert.wind_speed }} m/s</span>
+            {% if alert.vessel_docked_hours %}
+            <span>⏱ {{ "%.1f"|format(alert.vessel_docked_hours) }}h docked</span>
+            {% endif %}
+        </div>
+    </div>
+    {% endfor %}
+</div>
+{% else %}
+<div class="text-gray-600 text-sm">No alerts yet.</div>
+{% endif %}
+
+{% endblock %}

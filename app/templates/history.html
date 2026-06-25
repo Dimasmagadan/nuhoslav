@@ -1,0 +1,55 @@
+{% extends "base.html" %}
+{% block title %}History — Odor{% endblock %}
+{% block content %}
+
+<h1 class="text-sm font-semibold text-gray-300 uppercase tracking-widest mb-6">Alert history</h1>
+
+{% if alerts %}
+<div class="space-y-3">
+    {% for alert in alerts %}
+    <div class="bg-gray-900 border border-gray-800 rounded-lg p-4">
+        <div class="flex items-start justify-between flex-wrap gap-2 mb-3">
+            <div class="flex items-center gap-3">
+                <span class="text-amber-400 font-bold text-sm">risk {{ "%.2f"|format(alert.risk_score) }}</span>
+                <span class="text-gray-500 text-xs">{{ alert.sent_at.strftime('%Y-%m-%d %H:%M UTC') }}</span>
+            </div>
+            <div class="flex gap-2">
+                {% for fb in alert.feedback %}
+                    {% if fb.feedback_type == 'confirmed' %}
+                    <span class="text-xs bg-green-900/40 text-green-400 px-2 py-0.5 rounded border border-green-800/50">✅ smell confirmed</span>
+                    {% else %}
+                    <span class="text-xs bg-red-900/40 text-red-400 px-2 py-0.5 rounded border border-red-800/50">❌ false positive</span>
+                    {% endif %}
+                {% else %}
+                <span class="text-xs text-gray-600">no feedback</span>
+                {% endfor %}
+            </div>
+        </div>
+        <div class="grid grid-cols-2 sm:grid-cols-4 gap-3 text-xs">
+            <div>
+                <div class="text-gray-500 mb-0.5">vessel</div>
+                <div class="text-gray-200">{{ alert.vessel.display_name if alert.vessel else '—' }}</div>
+            </div>
+            <div>
+                <div class="text-gray-500 mb-0.5">docked</div>
+                <div class="text-gray-200">
+                    {% if alert.vessel_docked_hours %}{{ "%.1f"|format(alert.vessel_docked_hours) }}h{% else %}—{% endif %}
+                </div>
+            </div>
+            <div>
+                <div class="text-gray-500 mb-0.5">wind from</div>
+                <div class="text-gray-200">{{ alert.wind_direction | int }}°</div>
+            </div>
+            <div>
+                <div class="text-gray-500 mb-0.5">wind speed</div>
+                <div class="text-gray-200">{{ alert.wind_speed }} m/s</div>
+            </div>
+        </div>
+    </div>
+    {% endfor %}
+</div>
+{% else %}
+<div class="text-gray-600 text-sm">No alerts yet.</div>
+{% endif %}
+
+{% endblock %}
