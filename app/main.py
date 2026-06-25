@@ -71,8 +71,7 @@ async def index(request: Request, db: AsyncSession = Depends(get_db)):
     )
     recent_alerts = result.scalars().all()
 
-    return templates.TemplateResponse("index.html", {
-        "request": request,
+    return templates.TemplateResponse(request, "index.html", {
         "active_tankers": active_tankers,
         "wind": wind,
         "recent_alerts": recent_alerts,
@@ -123,7 +122,7 @@ async def vessels_page(request: Request, db: AsyncSession = Depends(get_db)):
     ]
     stats.sort(key=lambda x: (x["confirmed"], x["stink_rate"] or 0), reverse=True)
 
-    return templates.TemplateResponse("vessels.html", {"request": request, "vessels": stats})
+    return templates.TemplateResponse(request, "vessels.html", {"vessels": stats})
 
 
 @app.get("/history", response_class=HTMLResponse)
@@ -135,7 +134,7 @@ async def history_page(request: Request, db: AsyncSession = Depends(get_db)):
         .limit(100)
     )
     alerts = result.scalars().all()
-    return templates.TemplateResponse("history.html", {"request": request, "alerts": alerts})
+    return templates.TemplateResponse(request, "history.html", {"alerts": alerts})
 
 
 @app.get("/health")
