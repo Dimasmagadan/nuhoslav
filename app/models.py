@@ -35,7 +35,7 @@ class VesselPortVisit(Base):
     id: Mapped[int] = mapped_column(primary_key=True)
     vessel_id: Mapped[int] = mapped_column(ForeignKey("vessels.id"), nullable=False)
     entered_at: Mapped[datetime] = mapped_column(DateTime, nullable=False)
-    left_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    left_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True, index=True)
 
     vessel: Mapped["Vessel"] = relationship(back_populates="visits")
     alerts: Mapped[list["SmellAlert"]] = relationship(back_populates="visit")
@@ -59,8 +59,8 @@ class SmellAlert(Base):
     __tablename__ = "smell_alerts"
 
     id: Mapped[int] = mapped_column(primary_key=True)
-    sent_at: Mapped[datetime] = mapped_column(DateTime, nullable=False)
-    vessel_id: Mapped[int | None] = mapped_column(ForeignKey("vessels.id"), nullable=True)
+    sent_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, index=True)
+    vessel_id: Mapped[int | None] = mapped_column(ForeignKey("vessels.id"), nullable=True, index=True)
     visit_id: Mapped[int | None] = mapped_column(ForeignKey("vessel_port_visits.id"), nullable=True)
     wind_direction: Mapped[float] = mapped_column(Float, nullable=False)
     wind_speed: Mapped[float] = mapped_column(Float, nullable=False)
@@ -77,7 +77,7 @@ class AlertFeedback(Base):
     __tablename__ = "alert_feedback"
 
     id: Mapped[int] = mapped_column(primary_key=True)
-    alert_id: Mapped[int] = mapped_column(ForeignKey("smell_alerts.id"), nullable=False)
+    alert_id: Mapped[int] = mapped_column(ForeignKey("smell_alerts.id"), nullable=False, index=True)
     feedback_type: Mapped[str] = mapped_column(String(20), nullable=False)
     reported_at: Mapped[datetime] = mapped_column(DateTime, nullable=False)
     notes: Mapped[str | None] = mapped_column(Text, nullable=True)

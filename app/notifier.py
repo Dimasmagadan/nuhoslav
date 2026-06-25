@@ -1,7 +1,7 @@
 import logging
 from datetime import datetime
 
-from sqlalchemy import select
+from sqlalchemy import desc, select
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update
 from telegram.ext import Application, CallbackQueryHandler
 
@@ -49,9 +49,12 @@ async def _handle_feedback(update: Update, context) -> None:
 
     async with AsyncSessionLocal() as session:
         result = await session.execute(
-            select(AlertFeedback).where(AlertFeedback.alert_id == alert_id)
+            select(AlertFeedback)
+            .where(AlertFeedback.alert_id == alert_id)
+            .order_by(desc(AlertFeedback.id))
+            .limit(1)
         )
-        existing = result.scalar_one_or_none()
+        existing = result.scalars().first()
         if existing:
             existing.feedback_type = feedback_type
             existing.reported_at = datetime.utcnow()

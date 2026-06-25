@@ -119,8 +119,16 @@ def test_risk_speed_factor_caps_at_8ms():
 
 
 def test_risk_at_exact_tolerance_boundary():
-    # diff == tolerance → angle_factor == 0 → score == 0
-    with _patch_settings(wind_angle_tolerance_deg=45.0):
-        # wind_toward = 180+45 = 225; port_to_user = 180; diff = 45
+    # Port is exactly due north of user (same longitude) → port_to_user = 180°.
+    # Tolerance = 45°. Wind from_deg=45 → toward=225; diff=|225-180|=45 exactly.
+    # angle_factor = 1 - (45/45) = 0 → score == 0, but not blocked by direction
+    # (diff is not *greater than* tolerance, so blocked_by must be None).
+    with _patch_settings(
+        user_lat=44.70, user_lon=37.80,
+        port_lat_min=44.72, port_lat_max=44.72,  # same lat → center exactly 44.72
+        port_lon_min=37.80, port_lon_max=37.80,  # same lon as user → due north
+        wind_angle_tolerance_deg=45.0,
+    ):
         result = calculate_risk(wind_from_deg=45.0, wind_speed_ms=5.0, docked_hours=8.0)
+    assert result.blocked_by is None
     assert result.score == pytest.approx(0.0, abs=1e-6)
