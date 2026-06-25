@@ -10,7 +10,7 @@ from database import AsyncSessionLocal
 from models import SmellAlert
 from notifier import send_smell_alert
 from smell_estimator import calculate_risk
-from vessel_tracker import close_stale_visits, get_active_tankers
+from vessel_tracker import close_stale_visits, get_docked_vessels
 from wind_checker import fetch_and_store_wind
 
 logger = logging.getLogger(__name__)
@@ -37,7 +37,7 @@ async def _run_check() -> None:
         logger.warning("No wind data — skipping risk evaluation")
         return
 
-    tankers = await get_active_tankers()
+    tankers = await get_docked_vessels()
     # Include vessels with unknown type (type=None) since we might not have static data yet
     qualifying = [
         t for t in tankers

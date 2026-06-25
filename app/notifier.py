@@ -1,6 +1,7 @@
 import logging
 from datetime import datetime
 
+from sqlalchemy import select
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update
 from telegram.ext import Application, CallbackQueryHandler
 
@@ -25,6 +26,9 @@ def get_application() -> Application:
     return _application
 
 
+_VALID_FEEDBACK_TYPES = {"confirmed", "false_positive"}
+
+
 async def _handle_feedback(update: Update, context) -> None:
     query = update.callback_query
     await query.answer()
@@ -35,12 +39,28 @@ async def _handle_feedback(update: Update, context) -> None:
 
     _, feedback_type, alert_id_str = parts
 
+    if feedback_type not in _VALID_FEEDBACK_TYPES:
+        return
+
+    try:
+        alert_id = int(alert_id_str)
+    except ValueError:
+        return
+
     async with AsyncSessionLocal() as session:
-        session.add(AlertFeedback(
-            alert_id=int(alert_id_str),
-            feedback_type=feedback_type,
-            reported_at=datetime.utcnow(),
-        ))
+        result = await session.execute(
+            select(AlertFeedback).where(AlertFeedback.alert_id == alert_id)
+        )
+        existing = result.scalar_one_or_none()
+        if existing:
+            existing.feedback_type = feedback_type
+            existing.reported_at = datetime.utcnow()
+        else:
+            session.add(AlertFeedback(
+                alert_id=alert_id,
+                feedback_type=feedback_type,
+                reported_at=datetime.utcnow(),
+            ))
         await session.commit()
 
     emoji = "✅" if feedback_type == "confirmed" else "❌"
@@ -77,7 +97,7 @@ async def send_smell_alert(
 
     compass = _degrees_to_compass(wind_direction)
     text = (
-        f"⚠️ *Smell risk HIGH* (score: {risk_score:.2f})\n\n"
+        f"⚠️ Smell risk HIGH (score: {risk_score:.2f})\n\n"
         f"🚢 {vessel_name} (MMSI: {vessel_mmsi})\n"
         f"⏱ In port: {docked_hours:.1f}h\n"
         f"💨 Wind: {wind_direction:.0f}° ({compass}) at {wind_speed:.1f} m/s"
@@ -107,7 +127,6 @@ async def send_smell_alert(
             msg = await get_application().bot.send_message(
                 chat_id=settings.telegram_chat_id,
                 text=text,
-                parse_mode="Markdown",
                 reply_markup=keyboard,
             )
             alert.telegram_message_id = msg.message_id

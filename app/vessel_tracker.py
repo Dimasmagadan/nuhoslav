@@ -141,7 +141,7 @@ async def close_stale_visits() -> None:
         await _close_visit(mmsi)
 
 
-async def get_active_tankers() -> list[dict]:
+async def get_docked_vessels() -> list[dict]:
     """Return currently docked vessels with docking duration."""
     async with AsyncSessionLocal() as session:
         result = await session.execute(
