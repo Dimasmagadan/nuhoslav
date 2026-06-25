@@ -14,9 +14,28 @@ logger = logging.getLogger(__name__)
 
 AISSTREAM_URL = "wss://stream.aisstream.io/v0/stream"
 
-# In-memory state (survives between WebSocket reconnects)
+# In-memory state (survives between WebSocket reconnects, restored on startup)
 _vessel_last_seen: dict[str, datetime] = {}
 _active_visits: dict[str, int] = {}  # mmsi -> visit.id
+
+
+async def restore_state() -> None:
+    """Re-populate in-memory state from DB on startup so restarts don't create duplicate visits."""
+    async with AsyncSessionLocal() as session:
+        result = await session.execute(
+            select(VesselPortVisit, Vessel)
+            .join(Vessel, VesselPortVisit.vessel_id == Vessel.id)
+            .where(VesselPortVisit.left_at.is_(None))
+        )
+        rows = result.all()
+
+    now = datetime.utcnow()
+    for visit, vessel in rows:
+        _active_visits[vessel.mmsi] = visit.id
+        _vessel_last_seen[vessel.mmsi] = now  # approximate; will be updated by next AIS message
+
+    if rows:
+        logger.info(f"Restored {len(rows)} open vessel visit(s) from DB")
 
 
 async def _upsert_vessel(session, mmsi: str, **kwargs) -> Vessel:
@@ -35,6 +54,24 @@ async def _upsert_vessel(session, mmsi: str, **kwargs) -> Vessel:
     return vessel
 
 
+async def _close_visit(mmsi: str) -> None:
+    """Mark a vessel's current port visit as ended and remove from in-memory state."""
+    visit_id = _active_visits.pop(mmsi, None)
+    _vessel_last_seen.pop(mmsi, None)
+    if not visit_id:
+        return
+
+    async with AsyncSessionLocal() as session:
+        result = await session.execute(
+            select(VesselPortVisit).where(VesselPortVisit.id == visit_id)
+        )
+        visit = result.scalar_one_or_none()
+        if visit and visit.left_at is None:
+            visit.left_at = datetime.utcnow()
+            await session.commit()
+            logger.info(f"Vessel MMSI:{mmsi} left port")
+
+
 async def _handle_position_report(msg: dict) -> None:
     meta = msg.get("MetaData", {})
     mmsi = str(meta.get("MMSI", "")).strip()
@@ -50,7 +87,11 @@ async def _handle_position_report(msg: dict) -> None:
         settings.port_lat_min <= lat <= settings.port_lat_max
         and settings.port_lon_min <= lon <= settings.port_lon_max
     )
+
     if not in_port:
+        # Vessel we were tracking just left the geofence — close its visit immediately
+        if mmsi in _active_visits:
+            await _close_visit(mmsi)
         return
 
     _vessel_last_seen[mmsi] = datetime.utcnow()
@@ -89,28 +130,15 @@ async def _handle_static_data(msg: dict) -> None:
 
 
 async def close_stale_visits() -> None:
-    """Mark vessels as departed if not seen for >90 minutes."""
+    """Fallback: mark vessels as departed if not seen for >90 minutes (e.g. WebSocket gap)."""
     now = datetime.utcnow()
     stale = [
-        mmsi for mmsi, last in _vessel_last_seen.items()
+        mmsi for mmsi, last in list(_vessel_last_seen.items())
         if (now - last).total_seconds() > 5400
     ]
-    if not stale:
-        return
-
-    async with AsyncSessionLocal() as session:
-        for mmsi in stale:
-            visit_id = _active_visits.pop(mmsi, None)
-            _vessel_last_seen.pop(mmsi, None)
-            if visit_id:
-                result = await session.execute(
-                    select(VesselPortVisit).where(VesselPortVisit.id == visit_id)
-                )
-                visit = result.scalar_one_or_none()
-                if visit and visit.left_at is None:
-                    visit.left_at = now
-                    logger.info(f"Vessel MMSI:{mmsi} departed port")
-        await session.commit()
+    for mmsi in stale:
+        logger.info(f"Vessel MMSI:{mmsi} stale (90+ min without AIS update)")
+        await _close_visit(mmsi)
 
 
 async def get_active_tankers() -> list[dict]:

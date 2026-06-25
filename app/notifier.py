@@ -46,10 +46,9 @@ async def _handle_feedback(update: Update, context) -> None:
     emoji = "✅" if feedback_type == "confirmed" else "❌"
     label = "smell confirmed" if feedback_type == "confirmed" else "false positive"
     try:
-        await query.edit_message_text(
-            f"{query.message.text}\n\n{emoji} Marked as {label}",
-            parse_mode="Markdown",
-        )
+        # No parse_mode: query.message.text is plain text (Telegram strips Markdown),
+        # and vessel names with underscores would break Markdown parsing.
+        await query.edit_message_text(f"{query.message.text}\n\n{emoji} Marked as {label}")
     except Exception:
         pass
 
@@ -76,7 +75,15 @@ async def send_smell_alert(
         logger.warning("Telegram not configured — skipping notification")
         return None
 
-    # Save alert first to get an ID for the callback data
+    compass = _degrees_to_compass(wind_direction)
+    text = (
+        f"⚠️ *Smell risk HIGH* (score: {risk_score:.2f})\n\n"
+        f"🚢 {vessel_name} (MMSI: {vessel_mmsi})\n"
+        f"⏱ In port: {docked_hours:.1f}h\n"
+        f"💨 Wind: {wind_direction:.0f}° ({compass}) at {wind_speed:.1f} m/s"
+    )
+
+    # Single session: flush to get alert_id → send Telegram → commit with telegram_message_id
     async with AsyncSessionLocal() as session:
         alert = SmellAlert(
             sent_at=datetime.utcnow(),
@@ -88,39 +95,26 @@ async def send_smell_alert(
             vessel_docked_hours=docked_hours,
         )
         session.add(alert)
-        await session.commit()
-        await session.refresh(alert)
+        await session.flush()  # populates alert.id without committing
         alert_id = alert.id
 
-    compass = _degrees_to_compass(wind_direction)
-    text = (
-        f"⚠️ *Smell risk HIGH* (score: {risk_score:.2f})\n\n"
-        f"🚢 {vessel_name} (MMSI: {vessel_mmsi})\n"
-        f"⏱ In port: {docked_hours:.1f}h\n"
-        f"💨 Wind: {wind_direction:.0f}° ({compass}) at {wind_speed:.1f} m/s"
-    )
-    keyboard = InlineKeyboardMarkup([[
-        InlineKeyboardButton("✅ Smell confirmed", callback_data=f"feedback:confirmed:{alert_id}"),
-        InlineKeyboardButton("❌ No smell", callback_data=f"feedback:false_positive:{alert_id}"),
-    ]])
+        keyboard = InlineKeyboardMarkup([[
+            InlineKeyboardButton("✅ Smell confirmed", callback_data=f"feedback:confirmed:{alert_id}"),
+            InlineKeyboardButton("❌ No smell", callback_data=f"feedback:false_positive:{alert_id}"),
+        ]])
 
-    try:
-        app = get_application()
-        msg = await app.bot.send_message(
-            chat_id=settings.telegram_chat_id,
-            text=text,
-            parse_mode="Markdown",
-            reply_markup=keyboard,
-        )
-        async with AsyncSessionLocal() as session:
-            saved = await session.get(SmellAlert, alert_id)
-            if saved:
-                saved.telegram_message_id = msg.message_id
-                await session.commit()
+        try:
+            msg = await get_application().bot.send_message(
+                chat_id=settings.telegram_chat_id,
+                text=text,
+                parse_mode="Markdown",
+                reply_markup=keyboard,
+            )
+            alert.telegram_message_id = msg.message_id
+            logger.info(f"Alert {alert_id} sent via Telegram")
+        except Exception as e:
+            logger.error(f"Failed to send Telegram alert: {e}")
 
-        logger.info(f"Alert {alert_id} sent via Telegram")
-        return alert_id
+        await session.commit()
 
-    except Exception as e:
-        logger.error(f"Failed to send Telegram alert: {e}")
-        return None
+    return alert_id

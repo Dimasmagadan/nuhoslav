@@ -1,3 +1,4 @@
+import asyncio
 import logging
 from datetime import datetime, timedelta
 
@@ -15,9 +16,18 @@ from wind_checker import fetch_and_store_wind
 logger = logging.getLogger(__name__)
 
 scheduler = AsyncIOScheduler()
+_check_lock = asyncio.Lock()
 
 
 async def check_cycle() -> None:
+    if _check_lock.locked():
+        logger.info("check_cycle already running — skipping concurrent invocation")
+        return
+    async with _check_lock:
+        await _run_check()
+
+
+async def _run_check() -> None:
     logger.info("=== Smell check cycle started ===")
 
     await close_stale_visits()

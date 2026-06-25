@@ -5,16 +5,16 @@ from contextlib import asynccontextmanager
 from fastapi import Depends, FastAPI, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
-from sqlalchemy import desc, select
+from sqlalchemy import case, desc, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from config import settings
 from database import Base, engine, get_db
-from models import SmellAlert, Vessel, VesselPortVisit
+from models import AlertFeedback, SmellAlert, Vessel, VesselPortVisit
 from notifier import get_application
 from scheduler import check_cycle, start_scheduler, stop_scheduler
-from vessel_tracker import get_active_tankers, run_aisstream
+from vessel_tracker import get_active_tankers, restore_state, run_aisstream
 from wind_checker import get_latest_wind
 
 logging.basicConfig(level=logging.INFO, format="%(levelname)s %(name)s: %(message)s")
@@ -31,6 +31,8 @@ async def lifespan(app: FastAPI):
 
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
+
+    await restore_state()
 
     if settings.aisstream_api_key:
         _aisstream_task = asyncio.create_task(run_aisstream())
@@ -82,32 +84,45 @@ async def index(request: Request, db: AsyncSession = Depends(get_db)):
 
 @app.get("/vessels", response_class=HTMLResponse)
 async def vessels_page(request: Request, db: AsyncSession = Depends(get_db)):
-    result = await db.execute(
-        select(Vessel)
-        .options(selectinload(Vessel.alerts).selectinload(SmellAlert.feedback))
+    # Subqueries: distinct alert IDs that have each feedback type
+    confirmed_sq = (
+        select(AlertFeedback.alert_id)
+        .where(AlertFeedback.feedback_type == "confirmed")
+        .distinct()
+        .subquery()
+    )
+    false_pos_sq = (
+        select(AlertFeedback.alert_id)
+        .where(AlertFeedback.feedback_type == "false_positive")
+        .distinct()
+        .subquery()
+    )
+
+    stmt = (
+        select(
+            Vessel,
+            func.count(SmellAlert.id).label("total_alerts"),
+            func.count(confirmed_sq.c.alert_id).label("confirmed"),
+            func.count(false_pos_sq.c.alert_id).label("false_positives"),
+        )
+        .outerjoin(SmellAlert, SmellAlert.vessel_id == Vessel.id)
+        .outerjoin(confirmed_sq, confirmed_sq.c.alert_id == SmellAlert.id)
+        .outerjoin(false_pos_sq, false_pos_sq.c.alert_id == SmellAlert.id)
+        .group_by(Vessel.id)
         .order_by(desc(Vessel.last_seen))
     )
-    vessel_list = result.scalars().all()
 
-    stats = []
-    for v in vessel_list:
-        total = len(v.alerts)
-        confirmed = sum(
-            1 for a in v.alerts
-            if any(f.feedback_type == "confirmed" for f in a.feedback)
-        )
-        false_pos = sum(
-            1 for a in v.alerts
-            if any(f.feedback_type == "false_positive" for f in a.feedback)
-        )
-        stats.append({
-            "vessel": v,
+    rows = (await db.execute(stmt)).all()
+    stats = [
+        {
+            "vessel": vessel,
             "total_alerts": total,
             "confirmed": confirmed,
             "false_positives": false_pos,
             "stink_rate": confirmed / total if total > 0 else None,
-        })
-
+        }
+        for vessel, total, confirmed, false_pos in rows
+    ]
     stats.sort(key=lambda x: (x["confirmed"], x["stink_rate"] or 0), reverse=True)
 
     return templates.TemplateResponse("vessels.html", {"request": request, "vessels": stats})
