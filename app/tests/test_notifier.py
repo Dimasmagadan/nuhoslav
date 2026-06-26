@@ -12,17 +12,17 @@ from notifier import _degrees_to_compass, _handle_feedback, send_smell_alert
 # --- _degrees_to_compass ---
 
 def test_compass_cardinals():
-    assert _degrees_to_compass(0) == "N"
-    assert _degrees_to_compass(90) == "E"
-    assert _degrees_to_compass(180) == "S"
-    assert _degrees_to_compass(270) == "W"
+    assert _degrees_to_compass(0) == "С"
+    assert _degrees_to_compass(90) == "В"
+    assert _degrees_to_compass(180) == "Ю"
+    assert _degrees_to_compass(270) == "З"
 
 def test_compass_wraparound():
-    assert _degrees_to_compass(360) == "N"
+    assert _degrees_to_compass(360) == "С"
 
 def test_compass_intercardinal():
-    assert _degrees_to_compass(22.5) == "NNE"
-    assert _degrees_to_compass(45) == "NE"
+    assert _degrees_to_compass(22.5) == "ССВ"
+    assert _degrees_to_compass(45) == "СВ"
 
 
 # --- send_smell_alert: no parse_mode regression ---
@@ -44,7 +44,7 @@ async def test_send_alert_no_parse_mode(db_session):
         patch("notifier.settings") as mock_settings,
     ):
         mock_settings.telegram_bot_token = "token"
-        mock_settings.telegram_chat_id = "123"
+        mock_settings.telegram_chat_ids = ["123"]
         mock_session_factory.return_value.__aenter__ = AsyncMock(return_value=db_session)
         mock_session_factory.return_value.__aexit__ = AsyncMock(return_value=False)
 

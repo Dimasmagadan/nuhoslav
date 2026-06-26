@@ -1,63 +1,64 @@
 import pytest
 from datetime import datetime, timedelta
-from unittest.mock import patch
+from unittest.mock import AsyncMock, patch
 
-from models import SmellAlert
-from scheduler import _is_in_cooldown
-
-
-@pytest.mark.asyncio
-async def test_cooldown_true_when_recent_alert(db_session):
-    alert = SmellAlert(
-        sent_at=datetime.utcnow() - timedelta(minutes=30),
-        wind_direction=0.0,
-        wind_speed=5.0,
-        risk_score=0.5,
-    )
-    db_session.add(alert)
-    await db_session.commit()
-
-    with patch("scheduler.AsyncSessionLocal") as mock_sf:
-        from unittest.mock import AsyncMock
-        mock_sf.return_value.__aenter__ = AsyncMock(return_value=db_session)
-        mock_sf.return_value.__aexit__ = AsyncMock(return_value=False)
-        with patch("scheduler.settings") as mock_s:
-            mock_s.alert_cooldown_hours = 4.0
-            result = await _is_in_cooldown()
-
-    assert result is True
+import scheduler as sched_module
 
 
 @pytest.mark.asyncio
-async def test_cooldown_false_when_old_alert(db_session):
-    alert = SmellAlert(
-        sent_at=datetime.utcnow() - timedelta(hours=6),
-        wind_direction=0.0,
-        wind_speed=5.0,
-        risk_score=0.5,
-    )
-    db_session.add(alert)
-    await db_session.commit()
-
-    with patch("scheduler.AsyncSessionLocal") as mock_sf:
-        from unittest.mock import AsyncMock
-        mock_sf.return_value.__aenter__ = AsyncMock(return_value=db_session)
-        mock_sf.return_value.__aexit__ = AsyncMock(return_value=False)
-        with patch("scheduler.settings") as mock_s:
-            mock_s.alert_cooldown_hours = 4.0
-            result = await _is_in_cooldown()
-
-    assert result is False
+async def test_run_check_skipped_when_recently_alerted():
+    """Regular cycle is skipped while alerted state is within timeout."""
+    sched_module._alerted_at = datetime.utcnow() - timedelta(minutes=5)
+    try:
+        with (
+            patch("scheduler.close_stale_visits", new_callable=AsyncMock),
+            patch("scheduler.fetch_and_store_wind", new_callable=AsyncMock) as mock_wind,
+            patch("scheduler.settings") as mock_s,
+        ):
+            mock_s.alert_timeout_hours = 1.0
+            await sched_module._run_check()
+        mock_wind.assert_not_called()
+    finally:
+        sched_module._alerted_at = None
 
 
 @pytest.mark.asyncio
-async def test_cooldown_false_when_no_alerts(db_session):
-    with patch("scheduler.AsyncSessionLocal") as mock_sf:
-        from unittest.mock import AsyncMock
-        mock_sf.return_value.__aenter__ = AsyncMock(return_value=db_session)
-        mock_sf.return_value.__aexit__ = AsyncMock(return_value=False)
-        with patch("scheduler.settings") as mock_s:
-            mock_s.alert_cooldown_hours = 4.0
-            result = await _is_in_cooldown()
+async def test_run_check_resets_expired_alerted_state():
+    """Alerted state is cleared once timeout has elapsed."""
+    sched_module._alerted_at = datetime.utcnow() - timedelta(hours=2)
+    try:
+        with (
+            patch("scheduler.close_stale_visits", new_callable=AsyncMock),
+            patch("scheduler.fetch_and_store_wind", new_callable=AsyncMock, return_value=None),
+            patch("scheduler.settings") as mock_s,
+        ):
+            mock_s.alert_timeout_hours = 1.0
+            await sched_module._run_check()
+        assert sched_module._alerted_at is None
+    finally:
+        sched_module._alerted_at = None
 
-    assert result is False
+
+@pytest.mark.asyncio
+async def test_recovery_sends_all_clear_when_risk_zero():
+    """Recovery check sends all-clear message when risk drops to zero."""
+    sched_module._alerted_at = datetime.utcnow() - timedelta(minutes=15)
+    try:
+        wind_mock = AsyncMock()
+        wind_mock.direction_deg = 180.0
+        wind_mock.speed_ms = 5.0
+
+        with (
+            patch("scheduler.fetch_and_store_wind", new_callable=AsyncMock, return_value=wind_mock),
+            patch("scheduler.get_docked_vessels", new_callable=AsyncMock, return_value=[]),
+            patch("scheduler.send_all_clear", new_callable=AsyncMock) as mock_clear,
+            patch("scheduler.settings") as mock_s,
+        ):
+            mock_s.alert_timeout_hours = 1.0
+            mock_s.vessel_docked_hours = 2.0
+            await sched_module._recovery_check()
+
+        mock_clear.assert_called_once()
+        assert sched_module._alerted_at is None
+    finally:
+        sched_module._alerted_at = None

@@ -18,11 +18,16 @@ class Settings(BaseSettings):
     vessel_docked_hours: float = 2.0
     wind_angle_tolerance_deg: float = 45.0
     wind_speed_min_ms: float = 1.5
-    alert_cooldown_hours: float = 4.0
+    alert_pause_minutes: int = 10       # pause after alert before resuming checks
+    alert_timeout_hours: float = 1.0    # max time in alerted state before reset
     check_interval_minutes: int = 30
 
     telegram_bot_token: str = ""
-    telegram_chat_id: str = ""
+    telegram_chat_id: str = ""          # comma-separated for multiple recipients
+
+    @property
+    def telegram_chat_ids(self) -> list[str]:
+        return [cid.strip() for cid in self.telegram_chat_id.split(",") if cid.strip()]
 
     aisstream_api_key: str = ""
 

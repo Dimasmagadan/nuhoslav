@@ -67,11 +67,9 @@ async def _handle_feedback(update: Update, context) -> None:
         await session.commit()
 
     emoji = "✅" if feedback_type == "confirmed" else "❌"
-    label = "smell confirmed" if feedback_type == "confirmed" else "false positive"
+    label = "Запах подтверждён" if feedback_type == "confirmed" else "Ложная тревога"
     try:
-        # No parse_mode: query.message.text is plain text (Telegram strips Markdown),
-        # and vessel names with underscores would break Markdown parsing.
-        await query.edit_message_text(f"{query.message.text}\n\n{emoji} Marked as {label}")
+        await query.edit_message_text(f"{query.message.text}\n\n{emoji} {label}")
     except Exception:
         pass
 
@@ -79,8 +77,8 @@ async def _handle_feedback(update: Update, context) -> None:
 
 
 def _degrees_to_compass(deg: float) -> str:
-    dirs = ["N", "NNE", "NE", "ENE", "E", "ESE", "SE", "SSE",
-            "S", "SSW", "SW", "WSW", "W", "WNW", "NW", "NNW"]
+    dirs = ["С", "ССВ", "СВ", "ВСВ", "В", "ВЮВ", "ЮВ", "ЮЮВ",
+            "Ю", "ЮЮЗ", "ЮЗ", "ЗЮЗ", "З", "ЗСЗ", "СЗ", "ССЗ"]
     return dirs[round(deg / 22.5) % 16]
 
 
@@ -94,19 +92,19 @@ async def send_smell_alert(
     wind_speed: float,
     risk_score: float,
 ) -> int | None:
-    if not settings.telegram_bot_token or not settings.telegram_chat_id:
-        logger.warning("Telegram not configured — skipping notification")
+    if not settings.telegram_bot_token or not settings.telegram_chat_ids:
+        logger.warning("Telegram не настроен — уведомление пропущено")
         return None
 
     compass = _degrees_to_compass(wind_direction)
     text = (
-        f"⚠️ Smell risk HIGH (score: {risk_score:.2f})\n\n"
+        f"⚠️ Высокий риск запаха (оценка: {risk_score:.2f})\n\n"
         f"🚢 {vessel_name} (MMSI: {vessel_mmsi})\n"
-        f"⏱ In port: {docked_hours:.1f}h\n"
-        f"💨 Wind: {wind_direction:.0f}° ({compass}) at {wind_speed:.1f} m/s"
+        f"⏱ В порту: {docked_hours:.1f}ч\n"
+        f"💨 Ветер: {wind_direction:.0f}° ({compass}), {wind_speed:.1f} м/с\n\n"
+        f"Закройте окна!"
     )
 
-    # Single session: flush to get alert_id → send Telegram → commit with telegram_message_id
     async with AsyncSessionLocal() as session:
         alert = SmellAlert(
             sent_at=datetime.utcnow(),
@@ -118,25 +116,41 @@ async def send_smell_alert(
             vessel_docked_hours=docked_hours,
         )
         session.add(alert)
-        await session.flush()  # populates alert.id without committing
+        await session.flush()
         alert_id = alert.id
 
         keyboard = InlineKeyboardMarkup([[
-            InlineKeyboardButton("✅ Smell confirmed", callback_data=f"feedback:confirmed:{alert_id}"),
-            InlineKeyboardButton("❌ No smell", callback_data=f"feedback:false_positive:{alert_id}"),
+            InlineKeyboardButton("✅ Запах есть", callback_data=f"feedback:confirmed:{alert_id}"),
+            InlineKeyboardButton("❌ Запаха нет", callback_data=f"feedback:false_positive:{alert_id}"),
         ]])
 
-        try:
-            msg = await get_application().bot.send_message(
-                chat_id=settings.telegram_chat_id,
-                text=text,
-                reply_markup=keyboard,
-            )
-            alert.telegram_message_id = msg.message_id
-            logger.info(f"Alert {alert_id} sent via Telegram")
-        except Exception as e:
-            logger.error(f"Failed to send Telegram alert: {e}")
+        first_msg_id = None
+        for chat_id in settings.telegram_chat_ids:
+            try:
+                msg = await get_application().bot.send_message(
+                    chat_id=chat_id,
+                    text=text,
+                    reply_markup=keyboard,
+                )
+                if first_msg_id is None:
+                    first_msg_id = msg.message_id
+                logger.info(f"Alert {alert_id} sent to {chat_id}")
+            except Exception as e:
+                logger.error(f"Failed to send Telegram alert to {chat_id}: {e}")
 
+        alert.telegram_message_id = first_msg_id
         await session.commit()
 
     return alert_id
+
+
+async def send_all_clear() -> None:
+    if not settings.telegram_bot_token or not settings.telegram_chat_ids:
+        return
+    text = "✅ Воздух чистый — можно открыть окна"
+    for chat_id in settings.telegram_chat_ids:
+        try:
+            await get_application().bot.send_message(chat_id=chat_id, text=text)
+            logger.info(f"All-clear sent to {chat_id}")
+        except Exception as e:
+            logger.error(f"Failed to send all-clear to {chat_id}: {e}")
