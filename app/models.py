@@ -83,3 +83,19 @@ class AlertFeedback(Base):
     notes: Mapped[str | None] = mapped_column(Text, nullable=True)
 
     alert: Mapped["SmellAlert"] = relationship(back_populates="feedback")
+
+
+class SmellSighting(Base):
+    __tablename__ = "smell_sightings"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    reported_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, index=True)
+    vessel_id: Mapped[int | None] = mapped_column(ForeignKey("vessels.id"), nullable=True, index=True)
+    visit_id: Mapped[int | None] = mapped_column(ForeignKey("vessel_port_visits.id"), nullable=True)
+    vessel_lat: Mapped[float | None] = mapped_column(Float, nullable=True)
+    vessel_lon: Mapped[float | None] = mapped_column(Float, nullable=True)
+    stationary_since: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    stationary_hours: Mapped[float | None] = mapped_column(Float, nullable=True)
+
+    vessel: Mapped["Vessel | None"] = relationship()
+    visit: Mapped["VesselPortVisit | None"] = relationship()

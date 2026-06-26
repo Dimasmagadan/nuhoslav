@@ -3,6 +3,7 @@ import logging
 from contextlib import asynccontextmanager
 
 from fastapi import Depends, FastAPI, Request
+from telegram import BotCommand
 from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
 from sqlalchemy import desc, func, select
@@ -38,6 +39,7 @@ async def lifespan(app: FastAPI):
         tg = get_application()
         await tg.initialize()
         await tg.start()
+        await tg.bot.set_my_commands([BotCommand("smell", "Сообщить о запахе")])
         await tg.updater.start_polling(drop_pending_updates=True)
 
     start_scheduler()

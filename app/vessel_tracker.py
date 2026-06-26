@@ -17,6 +17,7 @@ AISSTREAM_URL = "wss://stream.aisstream.io/v0/stream"
 # In-memory state (survives between WebSocket reconnects, restored on startup)
 _vessel_last_seen: dict[str, datetime] = {}
 _active_visits: dict[str, int] = {}  # mmsi -> visit.id
+_vessel_positions: dict[str, tuple[float, float]] = {}  # mmsi -> (lat, lon)
 
 
 async def restore_state() -> None:
@@ -58,6 +59,7 @@ async def _close_visit(mmsi: str) -> None:
     """Mark a vessel's current port visit as ended and remove from in-memory state."""
     visit_id = _active_visits.pop(mmsi, None)
     _vessel_last_seen.pop(mmsi, None)
+    _vessel_positions.pop(mmsi, None)
     if not visit_id:
         return
 
@@ -95,6 +97,7 @@ async def _handle_position_report(msg: dict) -> None:
         return
 
     _vessel_last_seen[mmsi] = datetime.utcnow()
+    _vessel_positions[mmsi] = (lat, lon)
     name = meta.get("ShipName", "").strip() or None
 
     async with AsyncSessionLocal() as session:
@@ -160,6 +163,9 @@ async def get_docked_vessels() -> list[dict]:
             "docked_hours": visit.duration_hours,
             "visit_id": visit.id,
             "vessel_id": vessel.id,
+            "entered_at": visit.entered_at,
+            "lat": _vessel_positions[vessel.mmsi][0] if vessel.mmsi in _vessel_positions else None,
+            "lon": _vessel_positions[vessel.mmsi][1] if vessel.mmsi in _vessel_positions else None,
         }
         for visit, vessel in rows
     ]
