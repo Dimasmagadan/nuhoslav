@@ -1,0 +1,390 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ОДОРЪ — Система предупрежденія о запахѣ</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=IM+Fell+English:ital@0;1&family=Playfair+Display:ital,wght@0,400;0,700;0,900;1,400&display=swap" rel="stylesheet">
+    <style>
+        :root {
+            --crimson:        #8B1A1A;
+            --crimson-mid:    #A52222;
+            --gold:           #C49020;
+            --gold-light:     #E2B84A;
+            --parchment:      #F3E2A8;
+            --parchment-mid:  #E8CF88;
+            --parchment-dark: #D9BB6A;
+            --ink:            #19100A;
+            --ink-mid:        #3A2010;
+        }
+
+        *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+        body {
+            min-height: 100vh;
+            background-color: #0A0404;
+            background-image:
+                repeating-linear-gradient(90deg,  transparent, transparent 60px, rgba(139,26,26,.04) 60px, rgba(139,26,26,.04) 61px),
+                repeating-linear-gradient(0deg,   transparent, transparent 60px, rgba(139,26,26,.04) 60px, rgba(139,26,26,.04) 61px);
+            display: flex;
+            justify-content: center;
+            align-items: flex-start;
+            padding: 3rem 1.25rem 4rem;
+            font-family: 'IM Fell English', 'Georgia', serif;
+            color: var(--ink);
+        }
+
+        /* ── Outer scroll ── */
+        .scroll {
+            position: relative;
+            max-width: 980px;
+            width: 100%;
+            background:
+                radial-gradient(ellipse at 25% 15%, rgba(255,248,200,.55) 0%, transparent 55%),
+                radial-gradient(ellipse at 75% 85%, rgba(195,160,70,.35) 0%, transparent 55%),
+                linear-gradient(155deg, #F8EFC0 0%, #EDD888 35%, #F4E4A4 60%, #E2C870 100%);
+            padding: 4.5rem 4rem 3.5rem;
+            box-shadow:
+                inset 0 0 0  3px var(--parchment-dark),
+                inset 0 0 0  6px var(--crimson),
+                inset 0 0 0  9px var(--gold),
+                inset 0 0 0 13px var(--crimson),
+                inset 0 0 0 16px var(--parchment),
+                0 25px 80px rgba(0,0,0,.75),
+                0  8px 25px rgba(0,0,0,.45);
+        }
+
+        /* ── Corner flowers ── */
+        .corner {
+            position: absolute;
+            font-size: 1.6rem;
+            color: var(--crimson);
+            line-height: 1;
+            z-index: 5;
+            pointer-events: none;
+            user-select: none;
+        }
+        .c-tl { top: 7px;  left: 7px; }
+        .c-tr { top: 7px;  right: 7px;  transform: scaleX(-1); }
+        .c-bl { bottom: 7px; left: 7px;  transform: scaleY(-1); }
+        .c-br { bottom: 7px; right: 7px; transform: scale(-1, -1); }
+
+        /* ── Ornament divider ── */
+        .ornament-row {
+            display: flex;
+            align-items: center;
+            gap: .6rem;
+            justify-content: center;
+            color: var(--crimson);
+            font-size: 1.1rem;
+            letter-spacing: .25em;
+            margin: .8rem 0;
+        }
+        .ornament-rule {
+            flex: 1;
+            height: 1px;
+            background: linear-gradient(to right, transparent, var(--crimson) 30%, var(--gold) 50%, var(--crimson) 70%, transparent);
+        }
+
+        /* ── Header ── */
+        .masthead {
+            text-align: center;
+            margin-bottom: 2rem;
+        }
+
+        .title {
+            font-family: 'Playfair Display', 'Georgia', serif;
+            font-weight: 900;
+            font-size: clamp(3.8rem, 11vw, 7.5rem);
+            color: var(--crimson);
+            letter-spacing: .18em;
+            line-height: 1;
+            text-shadow:
+                2px 2px 0    var(--gold),
+                4px 4px 12px rgba(0,0,0,.3);
+            margin: .4rem 0 .6rem;
+        }
+
+        .subtitle {
+            font-family: 'IM Fell English', 'Georgia', serif;
+            font-style: italic;
+            font-size: clamp(.9rem, 2.4vw, 1.25rem);
+            color: var(--ink-mid);
+            letter-spacing: .04em;
+        }
+
+        /* ── Intro decree ── */
+        .decree {
+            font-size: clamp(.95rem, 2.2vw, 1.1rem);
+            color: var(--ink);
+            text-align: center;
+            max-width: 640px;
+            margin: .5rem auto 2.5rem;
+            line-height: 1.8;
+            font-style: italic;
+        }
+
+        /* ── Two steps ── */
+        .steps {
+            display: grid;
+            grid-template-columns: 1fr 1px 1fr;
+            gap: 0 3.5rem;
+            align-items: start;
+            margin-top: .5rem;
+        }
+
+        /* Vertical rule between steps */
+        .vdivider {
+            align-self: stretch;
+            position: relative;
+            background: linear-gradient(to bottom,
+                transparent 0%,
+                var(--crimson) 15%,
+                var(--gold)    50%,
+                var(--crimson) 85%,
+                transparent 100%
+            );
+        }
+        .vdivider::after {
+            content: '✦';
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            font-size: 1.2rem;
+            color: var(--crimson);
+            background: var(--parchment-mid);
+            width: 2rem;
+            height: 2rem;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            border-radius: 50%;
+        }
+
+        /* Individual step */
+        .step {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            text-align: center;
+        }
+
+        .step-label {
+            font-family: 'Playfair Display', serif;
+            font-size: .78rem;
+            font-weight: 700;
+            color: var(--gold);
+            letter-spacing: .45em;
+            text-transform: uppercase;
+            margin-bottom: .35rem;
+        }
+
+        .step-title {
+            font-family: 'Playfair Display', serif;
+            font-weight: 700;
+            font-size: clamp(1.25rem, 3vw, 1.75rem);
+            color: var(--crimson);
+            letter-spacing: .06em;
+            margin-bottom: 1.25rem;
+            text-shadow: 1px 1px 0 rgba(201,144,42,.25);
+        }
+
+        /* Image with ornate frame */
+        .image-frame {
+            width: 100%;
+            aspect-ratio: 4 / 3;
+            overflow: hidden;
+            position: relative;
+            margin-bottom: 1.4rem;
+            box-shadow:
+                0 0 0  3px var(--parchment-dark),
+                0 0 0  6px var(--crimson),
+                0 0 0  9px var(--gold-light),
+                0 0 0 12px var(--crimson),
+                8px 12px 32px rgba(0,0,0,.55);
+        }
+
+        .image-frame img {
+            width: 100%;
+            height: 100%;
+            object-fit: cover;
+            display: block;
+            filter: sepia(12%) contrast(1.06) brightness(.97);
+            transition: filter .4s ease;
+        }
+        .image-frame:hover img {
+            filter: sepia(0%) contrast(1.08) brightness(1);
+        }
+
+        .step-text {
+            font-size: clamp(.9rem, 2vw, 1.05rem);
+            color: var(--ink);
+            line-height: 1.8;
+            font-style: italic;
+        }
+
+        /* ── Footer ── */
+        .page-footer {
+            text-align: center;
+            margin-top: 2.5rem;
+        }
+
+        .stamp {
+            display: inline-block;
+            border: 3px double var(--crimson);
+            color: var(--crimson);
+            font-family: 'Playfair Display', serif;
+            font-weight: 900;
+            font-size: 1.5rem;
+            letter-spacing: .12em;
+            padding: .4rem 1.4rem .3rem;
+            transform: rotate(-1.5deg);
+            margin: 1.2rem auto .4rem;
+            box-shadow: 3px 3px 0 var(--gold);
+            opacity: .88;
+        }
+
+        .footer-note {
+            margin-top: 1rem;
+            font-size: .9rem;
+            color: var(--ink-mid);
+            font-style: italic;
+            letter-spacing: .02em;
+        }
+
+        .footer-note a {
+            color: var(--crimson);
+            text-decoration: none;
+            border-bottom: 1px solid var(--gold);
+            padding-bottom: 1px;
+        }
+        .footer-note a:hover {
+            color: var(--gold);
+            border-color: var(--crimson);
+        }
+
+        /* ── Mobile ── */
+        @media (max-width: 660px) {
+            .scroll { padding: 3.5rem 1.5rem 2.5rem; }
+
+            .steps {
+                grid-template-columns: 1fr;
+                gap: 2.5rem 0;
+            }
+
+            .vdivider {
+                height: 1px;
+                width: 100%;
+                background: linear-gradient(to right,
+                    transparent 0%,
+                    var(--crimson) 15%,
+                    var(--gold)    50%,
+                    var(--crimson) 85%,
+                    transparent 100%
+                );
+                align-self: auto;
+            }
+
+            .vdivider::after {
+                top: 50%;
+                left: 50%;
+                transform: translate(-50%, -50%);
+            }
+        }
+    </style>
+</head>
+<body>
+
+<article class="scroll">
+    <div class="corner c-tl">❧</div>
+    <div class="corner c-tr">❧</div>
+    <div class="corner c-bl">❧</div>
+    <div class="corner c-br">❧</div>
+
+    <!-- ── Masthead ── -->
+    <header class="masthead">
+        <div class="ornament-row">
+            <span class="ornament-rule"></span>
+            <span>✦ &nbsp; ❦ &nbsp; ✦</span>
+            <span class="ornament-rule"></span>
+        </div>
+
+        <h1 class="title">О Д О Р Ъ</h1>
+        <p class="subtitle">Система предупрежденія о портовомъ запахѣ</p>
+
+        <div class="ornament-row">
+            <span class="ornament-rule"></span>
+            <span>✦ &nbsp; ❦ &nbsp; ✦</span>
+            <span class="ornament-rule"></span>
+        </div>
+    </header>
+
+    <!-- ── Intro ── -->
+    <p class="decree">
+        Сей механизмъ неустанно бдитъ надъ чистотою воздуха.
+        Когда нефтяной танкеръ застаивается въ порту
+        и вѣтеръ дуетъ въ твою сторону —
+        немедленно поступаетъ предупрежденіе.
+    </p>
+
+    <!-- ── Steps ── -->
+    <div class="steps">
+
+        <!-- Step 1 -->
+        <div class="step">
+            <div class="step-label">Шагъ первый</div>
+            <h2 class="step-title">Обнюхиваніе</h2>
+            <div class="image-frame">
+                <img src="assets/slide-1.jpeg" alt="Нюхачъ бдитъ надъ портомъ">
+            </div>
+            <p class="step-text">
+                Каждые полчаса скриптъ опрашиваетъ морскіе суда по протоколу AIS,
+                вопрошаетъ метеослужбу о силѣ и направленіи вѣтра,
+                и вычисляетъ: несётъ ли вонь съ нефтяного причала
+                прямо на твоё жилище?
+            </p>
+        </div>
+
+        <!-- Divider -->
+        <div class="vdivider"></div>
+
+        <!-- Step 2 -->
+        <div class="step">
+            <div class="step-label">Шагъ второй</div>
+            <h2 class="step-title">Оповѣщеніе</h2>
+            <div class="image-frame">
+                <img src="assets/slide-2.jpeg" alt="Вѣстникъ предупреждаетъ народъ">
+            </div>
+            <p class="step-text">
+                Ежели вѣтеръ дуетъ въ твою сторону
+                и танкеръ застоялся у берега —
+                въ Telegram летитъ грозное предупрежденіе.
+                Ты же подтверждаешь иль опровергаешь:
+                науку сію совершенствуя.
+            </p>
+        </div>
+
+    </div>
+
+    <!-- ── Footer ── -->
+    <footer class="page-footer">
+        <div class="ornament-row" style="margin-top: 2rem">
+            <span class="ornament-rule"></span>
+            <span>✦ &nbsp; ❦ &nbsp; ✦</span>
+            <span class="ornament-rule"></span>
+        </div>
+
+        <div class="stamp">Закрой окна!</div>
+
+        <p class="footer-note">
+            Исходный кодъ открытъ и доступенъ на
+            <a href="https://github.com">GitHub</a>
+        </p>
+    </footer>
+</article>
+
+</body>
+</html>
