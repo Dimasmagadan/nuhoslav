@@ -245,13 +245,14 @@ async def _handle_forecast_command(update: Update, context) -> None:
         return
 
     rows = []
-    for i, f in enumerate(forecast):
-        hour_str = f["time"][11:16]  # "HH:MM" from "YYYY-MM-DDTHH:MM"
-        spd = f["speed_ms"]
-        dir_deg = f["direction_deg"]
+    for entry in forecast:
+        hour_str = entry["time"][11:16]  # "HH:MM" from "YYYY-MM-DDTHH:MM"
+        spd = entry["speed_ms"]
+        dir_deg = entry["direction_deg"]
+        hours_from_now = entry["hours_from_now"]
         if vessels:
             score = max(
-                calculate_risk(dir_deg, spd, v["docked_hours"] + i).score
+                calculate_risk(dir_deg, spd, v["docked_hours"] + hours_from_now).score
                 for v in vessels
             )
         else:

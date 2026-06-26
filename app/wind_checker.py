@@ -63,14 +63,14 @@ async def get_latest_wind() -> WindReading | None:
 
 
 async def fetch_hourly_forecast(hours: int = 12) -> list[dict]:
-    """Fetch hourly wind forecast for the next N hours. Returns list of {time, speed_ms, direction_deg}."""
+    """Fetch hourly wind forecast for the next N hours. Returns list of {time, speed_ms, direction_deg, hours_from_now}."""
     params = {
         "latitude": settings.user_lat,
         "longitude": settings.user_lon,
         "hourly": "wind_speed_10m,wind_direction_10m",
         "wind_speed_unit": "ms",
         "timezone": "UTC",
-        "forecast_days": 1,
+        "forecast_days": 2,
     }
     try:
         async with httpx.AsyncClient(timeout=10) as client:
@@ -83,11 +83,19 @@ async def fetch_hourly_forecast(hours: int = 12) -> list[dict]:
         speeds = hourly.get("wind_speed_10m", [])
         directions = hourly.get("wind_direction_10m", [])
 
-        return [
-            {"time": t, "speed_ms": s, "direction_deg": d}
-            for t, s, d in zip(times, speeds, directions)
-            if s is not None and d is not None
-        ][:hours]
+        now = datetime.utcnow()
+        result = []
+        for t, s, d in zip(times, speeds, directions):
+            if s is None or d is None:
+                continue
+            forecast_time = datetime.strptime(t, "%Y-%m-%dT%H:%M")
+            hours_from_now = (forecast_time - now).total_seconds() / 3600
+            if hours_from_now < -0.5:
+                continue
+            result.append({"time": t, "speed_ms": s, "direction_deg": d, "hours_from_now": max(hours_from_now, 0.0)})
+            if len(result) >= hours:
+                break
+        return result
 
     except Exception as e:
         logger.error(f"Failed to fetch wind forecast: {e}")
