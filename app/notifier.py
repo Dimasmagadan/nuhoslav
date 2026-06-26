@@ -2,13 +2,16 @@ import logging
 from datetime import datetime
 
 from sqlalchemy import desc, select
+from sqlalchemy.orm import selectinload
 from telegram import BotCommand, InlineKeyboardButton, InlineKeyboardMarkup, Update
 from telegram.ext import Application, CallbackQueryHandler, CommandHandler
 
 from config import settings
 from database import AsyncSessionLocal
 from models import AlertFeedback, SmellAlert, SmellSighting, Vessel, VesselPortVisit
+from smell_estimator import calculate_risk
 from vessel_tracker import get_docked_vessels
+from wind_checker import fetch_hourly_forecast, get_latest_wind
 
 logger = logging.getLogger(__name__)
 
@@ -26,6 +29,9 @@ def get_application() -> Application:
         _application.add_handler(CallbackQueryHandler(_handle_feedback, pattern=r"^feedback:"))
         _application.add_handler(CallbackQueryHandler(_handle_vessel_confirm, pattern=r"^smell_vessel:"))
         _application.add_handler(CommandHandler("smell", _handle_smell_command))
+        _application.add_handler(CommandHandler("status", _handle_status_command))
+        _application.add_handler(CommandHandler("forecast", _handle_forecast_command))
+        _application.add_handler(CommandHandler("history", _handle_history_command))
     return _application
 
 
@@ -192,6 +198,118 @@ async def _handle_vessel_confirm(update: Update, context) -> None:
         )
     except Exception:
         pass
+
+
+async def _handle_status_command(update: Update, context) -> None:
+    wind = await get_latest_wind()
+    vessels = await get_docked_vessels()
+
+    now_str = datetime.utcnow().strftime("%H:%M UTC")
+    lines = [f"📊 *Обстановка* ({now_str})\n"]
+
+    if wind:
+        compass = _degrees_to_compass(wind.direction_deg)
+        age_min = int((datetime.utcnow() - wind.recorded_at).total_seconds() / 60)
+        lines.append(f"💨 Ветер: {wind.direction_deg:.0f}° ({compass}), {wind.speed_ms:.1f} м/с _{age_min} мин назад_")
+    else:
+        lines.append("💨 Ветер: данные недоступны")
+
+    if vessels:
+        lines.append(f"\n🚢 В порту: {len(vessels)}")
+        for v in sorted(vessels, key=lambda x: x["docked_hours"], reverse=True):
+            h = v["docked_hours"]
+            marker = "🔴" if h >= 24 else "🟠" if h >= 6 else "🟡" if h >= 2 else "🟢"
+            tanker = " ⛽" if v["is_tanker"] else ""
+            lines.append(f"   {marker} *{v['name']}*{tanker} — {h:.1f}ч")
+
+        if wind:
+            risks = [calculate_risk(wind.direction_deg, wind.speed_ms, v["docked_hours"]) for v in vessels]
+            best = max(risks, key=lambda r: r.score)
+            if best.score > 0:
+                lines.append(f"\n⚠️ Риск: *{best.score:.2f}*")
+            else:
+                reason = "ветер слабый" if best.blocked_by == "wind_too_weak" else "ветер не туда"
+                lines.append(f"\n✅ Риск низкий ({reason})")
+    else:
+        lines.append("\n🚢 Судов в порту нет")
+
+    await update.message.reply_text("\n".join(lines), parse_mode="Markdown")
+
+
+async def _handle_forecast_command(update: Update, context) -> None:
+    forecast = await fetch_hourly_forecast(hours=12)
+    vessels = await get_docked_vessels()
+
+    if not forecast:
+        await update.message.reply_text("⚠️ Не удалось получить прогноз погоды")
+        return
+
+    rows = []
+    for i, f in enumerate(forecast):
+        hour_str = f["time"][11:16]  # "HH:MM" from "YYYY-MM-DDTHH:MM"
+        spd = f["speed_ms"]
+        dir_deg = f["direction_deg"]
+        if vessels:
+            score = max(
+                calculate_risk(dir_deg, spd, v["docked_hours"] + i).score
+                for v in vessels
+            )
+        else:
+            score = 0.0
+        rows.append((hour_str, dir_deg, spd, score))
+
+    peak_score = max(r[3] for r in rows) if rows else 0.0
+
+    lines = ["🔮 *Прогноз риска на 12ч*\n"]
+    for hour_str, dir_deg, spd, score in rows:
+        compass = _degrees_to_compass(dir_deg)
+        bar = "●" * round(score * 5) + "○" * (5 - round(score * 5))
+        peak = " ⬅" if score == peak_score and peak_score > 0 else ""
+        lines.append(f"`{hour_str}` {bar} {score:.2f} | {dir_deg:.0f}°{compass} {spd:.1f}м/с{peak}")
+
+    if not vessels:
+        lines.append("\n_Судов в порту нет — риск 0_")
+
+    await update.message.reply_text("\n".join(lines), parse_mode="Markdown")
+
+
+async def _handle_history_command(update: Update, context) -> None:
+    async with AsyncSessionLocal() as session:
+        result = await session.execute(
+            select(SmellAlert)
+            .options(selectinload(SmellAlert.vessel), selectinload(SmellAlert.feedback))
+            .order_by(desc(SmellAlert.sent_at))
+            .limit(10)
+        )
+        alerts = result.scalars().all()
+
+    if not alerts:
+        await update.message.reply_text("📋 Тревог пока не было")
+        return
+
+    confirmed_total = 0
+    false_total = 0
+    lines = ["📋 *Последние тревоги*\n"]
+
+    for i, alert in enumerate(alerts, 1):
+        date_str = alert.sent_at.strftime("%d.%m %H:%M")
+        vessel_name = alert.vessel.display_name if alert.vessel else "неизвестно"
+        fb = max(alert.feedback, key=lambda f: f.reported_at, default=None)
+        if fb and fb.feedback_type == "confirmed":
+            fb_str = "✅"
+            confirmed_total += 1
+        elif fb and fb.feedback_type == "false_positive":
+            fb_str = "❌"
+            false_total += 1
+        else:
+            fb_str = "—"
+        lines.append(f"{i}. {date_str} · *{vessel_name}* · {alert.risk_score:.2f} {fb_str}")
+
+    rated = confirmed_total + false_total
+    if rated > 0:
+        lines.append(f"\n✅ {confirmed_total} / ❌ {false_total} из {rated} оценено")
+
+    await update.message.reply_text("\n".join(lines), parse_mode="Markdown")
 
 
 def _degrees_to_compass(deg: float) -> str:

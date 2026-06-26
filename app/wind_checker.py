@@ -60,3 +60,35 @@ async def get_latest_wind() -> WindReading | None:
             select(WindReading).order_by(desc(WindReading.recorded_at)).limit(1)
         )
         return result.scalar_one_or_none()
+
+
+async def fetch_hourly_forecast(hours: int = 12) -> list[dict]:
+    """Fetch hourly wind forecast for the next N hours. Returns list of {time, speed_ms, direction_deg}."""
+    params = {
+        "latitude": settings.user_lat,
+        "longitude": settings.user_lon,
+        "hourly": "wind_speed_10m,wind_direction_10m",
+        "wind_speed_unit": "ms",
+        "timezone": "UTC",
+        "forecast_days": 1,
+    }
+    try:
+        async with httpx.AsyncClient(timeout=10) as client:
+            resp = await client.get(OPEN_METEO_URL, params=params)
+            resp.raise_for_status()
+            data = resp.json()
+
+        hourly = data.get("hourly", {})
+        times = hourly.get("time", [])
+        speeds = hourly.get("wind_speed_10m", [])
+        directions = hourly.get("wind_direction_10m", [])
+
+        return [
+            {"time": t, "speed_ms": s, "direction_deg": d}
+            for t, s, d in zip(times, speeds, directions)
+            if s is not None and d is not None
+        ][:hours]
+
+    except Exception as e:
+        logger.error(f"Failed to fetch wind forecast: {e}")
+        return []
