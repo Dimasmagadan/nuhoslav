@@ -57,7 +57,7 @@ async def lifespan(app: FastAPI):
     await engine.dispose()
 
 
-app = FastAPI(title="Odor", lifespan=lifespan)
+app = FastAPI(title="Нюхослав", lifespan=lifespan)
 
 
 @app.get("/", response_class=HTMLResponse)

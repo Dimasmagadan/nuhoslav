@@ -4,7 +4,9 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## What This Is
 
-**Odor** is a personal smell-alert system for an apartment near an oil/chemical port. It monitors vessel AIS traffic within a configurable geofence, checks wind direction and speed via Open-Meteo, and sends Telegram alerts when conditions suggest port fumes may reach the user's location. A FastAPI web dashboard shows live tanker status, alert history, and vessel statistics.
+**Нюхослав** is a personal smell-alert system for an apartment near an oil/chemical port. It monitors vessel AIS traffic within a configurable geofence, checks wind direction and speed via Open-Meteo, and sends Telegram alerts when conditions suggest port fumes may reach the user's location. A FastAPI web dashboard shows live tanker status, alert history, and vessel statistics.
+
+The project name is **Нюхослав** (Russian: нюх = sense of smell + слав = glory/Slavic name suffix).
 
 ## Commands
 

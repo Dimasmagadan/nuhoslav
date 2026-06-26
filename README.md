@@ -1,4 +1,4 @@
-# Odor
+# Нюхослав
 
 A personal smell-alert system for an apartment near an oil/chemical port. Monitors vessel AIS traffic in a configurable geofence, checks wind conditions, and sends Telegram alerts when port fumes are likely to reach your location.
 
