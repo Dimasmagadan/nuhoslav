@@ -129,6 +129,8 @@ async def _recovery_check() -> None:
         return
 
     logger.info("=== Recovery check started ===")
+    await close_stale_visits()
+
     wind = await fetch_and_store_wind()
     if wind is None:
         logger.warning("Recovery check: no wind data — rescheduling")
@@ -140,6 +142,13 @@ async def _recovery_check() -> None:
         logger.info(f"Recovery check: weather cleared ({weather_risk.blocked_by}) — sending all-clear")
         await send_all_clear()
         _alerted_at = None
+        return
+
+    # If weather still risky but AIS is stale, can't confirm clear — reschedule rather than false all-clear
+    ais_age = get_ais_data_age_minutes()
+    if ais_age is None or ais_age > settings.ais_stale_threshold_minutes:
+        logger.warning(f"Recovery: AIS still unavailable (age={ais_age} min) — rescheduling")
+        _schedule_recovery()
         return
 
     risk_score = 0.0

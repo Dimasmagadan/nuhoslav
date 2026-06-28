@@ -48,28 +48,15 @@ def evaluate_weather_risk(wind_from_deg: float, wind_speed_ms: float) -> RiskRes
 
 
 def calculate_risk(wind_from_deg: float, wind_speed_ms: float, docked_hours: float) -> RiskResult:
-    """
-    Returns a risk score 0–1.
-    wind_from_deg: meteorological convention — direction the wind is coming FROM.
-    Smell travels from port toward user when wind blows FROM port's direction.
-    """
-    port_to_user = _bearing(
-        settings.port_center_lat, settings.port_center_lon,
-        settings.user_lat, settings.user_lon,
+    """Returns a risk score 0–1. Delegates weather geometry to evaluate_weather_risk."""
+    weather = evaluate_weather_risk(wind_from_deg, wind_speed_ms)
+    if weather.blocked_by:
+        return weather
+    time_factor = min(docked_hours / 6.0, 1.0)  # 6+ hours = full score
+    return RiskResult(
+        weather.score * time_factor,
+        weather.angle_diff,
+        weather.wind_toward_deg,
+        weather.port_to_user_bearing,
+        None,
     )
-    # Wind blows toward (wind_from + 180). Smell reaches user when wind_toward ≈ port_to_user.
-    wind_toward = (wind_from_deg + 180) % 360
-    diff = _angle_diff(wind_toward, port_to_user)
-
-    if wind_speed_ms < settings.wind_speed_min_ms:
-        return RiskResult(0.0, diff, wind_toward, port_to_user, "wind_too_weak")
-
-    if diff > settings.wind_angle_tolerance_deg:
-        return RiskResult(0.0, diff, wind_toward, port_to_user, "wrong_direction")
-
-    angle_factor = 1.0 - (diff / settings.wind_angle_tolerance_deg)
-    speed_factor = min(wind_speed_ms / 8.0, 1.0)  # 8 m/s = full score
-    time_factor = min(docked_hours / 6.0, 1.0)    # 6+ hours = full score
-
-    score = angle_factor * speed_factor * time_factor
-    return RiskResult(score, diff, wind_toward, port_to_user, None)
