@@ -1,5 +1,5 @@
 import logging
-from datetime import datetime
+from datetime import datetime, timezone
 
 import httpx
 from sqlalchemy import select, desc
@@ -37,7 +37,7 @@ async def fetch_and_store_wind() -> WindReading | None:
             return None
 
         reading = WindReading(
-            recorded_at=datetime.utcnow(),
+            recorded_at=datetime.now(timezone.utc).replace(tzinfo=None),
             direction_deg=float(direction),
             speed_ms=float(speed),
         )
@@ -83,7 +83,7 @@ async def fetch_hourly_forecast(hours: int = 12) -> list[dict]:
         speeds = hourly.get("wind_speed_10m", [])
         directions = hourly.get("wind_direction_10m", [])
 
-        now = datetime.utcnow()
+        now = datetime.now(timezone.utc).replace(tzinfo=None)
         result = []
         for t, s, d in zip(times, speeds, directions):
             if s is None or d is None:

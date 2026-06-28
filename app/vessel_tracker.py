@@ -1,7 +1,7 @@
 import asyncio
 import json
 import logging
-from datetime import datetime
+from datetime import datetime, timezone
 
 import websockets
 from sqlalchemy import select
@@ -30,7 +30,7 @@ async def restore_state() -> None:
         )
         rows = result.all()
 
-    now = datetime.utcnow()
+    now = datetime.now(timezone.utc).replace(tzinfo=None)
     for visit, vessel in rows:
         _active_visits[vessel.mmsi] = visit.id
         _vessel_last_seen[vessel.mmsi] = now  # approximate; will be updated by next AIS message
@@ -42,7 +42,7 @@ async def restore_state() -> None:
 async def _upsert_vessel(session, mmsi: str, **kwargs) -> Vessel:
     result = await session.execute(select(Vessel).where(Vessel.mmsi == mmsi))
     vessel = result.scalar_one_or_none()
-    now = datetime.utcnow()
+    now = datetime.now(timezone.utc).replace(tzinfo=None)
     if vessel is None:
         vessel = Vessel(mmsi=mmsi, first_seen=now, last_seen=now, **kwargs)
         session.add(vessel)
@@ -69,7 +69,7 @@ async def _close_visit(mmsi: str) -> None:
         )
         visit = result.scalar_one_or_none()
         if visit and visit.left_at is None:
-            visit.left_at = datetime.utcnow()
+            visit.left_at = datetime.now(timezone.utc).replace(tzinfo=None)
             await session.commit()
             logger.info(f"Vessel MMSI:{mmsi} left port")
 
@@ -96,7 +96,7 @@ async def _handle_position_report(msg: dict) -> None:
             await _close_visit(mmsi)
         return
 
-    _vessel_last_seen[mmsi] = datetime.utcnow()
+    _vessel_last_seen[mmsi] = datetime.now(timezone.utc).replace(tzinfo=None)
     _vessel_positions[mmsi] = (lat, lon)
     name = meta.get("ShipName", "").strip() or None
 
@@ -104,7 +104,7 @@ async def _handle_position_report(msg: dict) -> None:
         vessel = await _upsert_vessel(session, mmsi, name=name)
 
         if mmsi not in _active_visits:
-            visit = VesselPortVisit(vessel_id=vessel.id, entered_at=datetime.utcnow())
+            visit = VesselPortVisit(vessel_id=vessel.id, entered_at=datetime.now(timezone.utc).replace(tzinfo=None))
             session.add(visit)
             await session.flush()
             _active_visits[mmsi] = visit.id
@@ -134,13 +134,13 @@ async def _handle_static_data(msg: dict) -> None:
 
 async def close_stale_visits() -> None:
     """Fallback: mark vessels as departed if not seen for >90 minutes (e.g. WebSocket gap)."""
-    now = datetime.utcnow()
+    now = datetime.now(timezone.utc).replace(tzinfo=None)
     stale = [
         mmsi for mmsi, last in list(_vessel_last_seen.items())
-        if (now - last).total_seconds() > 5400
+        if (now - last).total_seconds() > settings.stale_visit_minutes * 60
     ]
     for mmsi in stale:
-        logger.info(f"Vessel MMSI:{mmsi} stale (90+ min without AIS update)")
+        logger.info(f"Vessel MMSI:{mmsi} stale ({settings.stale_visit_minutes}+ min without AIS update)")
         await _close_visit(mmsi)
 
 

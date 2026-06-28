@@ -1,5 +1,5 @@
 import pytest
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from unittest.mock import AsyncMock, patch
 
 import scheduler as sched_module
@@ -8,7 +8,7 @@ import scheduler as sched_module
 @pytest.mark.asyncio
 async def test_run_check_skipped_when_recently_alerted():
     """Regular cycle is skipped while alerted state is within timeout."""
-    sched_module._alerted_at = datetime.utcnow() - timedelta(minutes=5)
+    sched_module._alerted_at = datetime.now(timezone.utc).replace(tzinfo=None) - timedelta(minutes=5)
     try:
         with (
             patch("scheduler.close_stale_visits", new_callable=AsyncMock),
@@ -25,7 +25,7 @@ async def test_run_check_skipped_when_recently_alerted():
 @pytest.mark.asyncio
 async def test_run_check_resets_expired_alerted_state():
     """Alerted state is cleared once timeout has elapsed."""
-    sched_module._alerted_at = datetime.utcnow() - timedelta(hours=2)
+    sched_module._alerted_at = datetime.now(timezone.utc).replace(tzinfo=None) - timedelta(hours=2)
     try:
         with (
             patch("scheduler.close_stale_visits", new_callable=AsyncMock),
@@ -42,7 +42,7 @@ async def test_run_check_resets_expired_alerted_state():
 @pytest.mark.asyncio
 async def test_recovery_sends_all_clear_when_risk_zero():
     """Recovery check sends all-clear message when risk drops to zero."""
-    sched_module._alerted_at = datetime.utcnow() - timedelta(minutes=15)
+    sched_module._alerted_at = datetime.now(timezone.utc).replace(tzinfo=None) - timedelta(minutes=15)
     try:
         wind_mock = AsyncMock()
         wind_mock.direction_deg = 180.0
@@ -56,6 +56,7 @@ async def test_recovery_sends_all_clear_when_risk_zero():
         ):
             mock_s.alert_timeout_hours = 1.0
             mock_s.vessel_docked_hours = 2.0
+            mock_s.risk_threshold = 0.15
             await sched_module._recovery_check()
 
         mock_clear.assert_called_once()

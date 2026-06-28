@@ -21,6 +21,8 @@ class Settings(BaseSettings):
     alert_pause_minutes: int = 10       # pause after alert before resuming checks
     alert_timeout_hours: float = 1.0    # max time in alerted state before reset
     check_interval_minutes: int = 30
+    risk_threshold: float = 0.15         # minimum score to trigger an alert
+    stale_visit_minutes: int = 90        # close visit if no AIS update for this long
 
     telegram_bot_token: str = ""
     telegram_chat_id: str = ""          # comma-separated for multiple recipients

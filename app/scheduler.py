@@ -1,6 +1,6 @@
 import asyncio
 import logging
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 
@@ -45,7 +45,7 @@ def _schedule_recovery() -> None:
     scheduler.add_job(
         _recovery_check,
         "date",
-        run_date=datetime.utcnow() + timedelta(minutes=settings.alert_pause_minutes),
+        run_date=datetime.now(timezone.utc).replace(tzinfo=None) + timedelta(minutes=settings.alert_pause_minutes),
         id="smell_recovery",
         replace_existing=True,
     )
@@ -59,7 +59,7 @@ async def _run_check() -> None:
     await close_stale_visits()
 
     if _alerted_at is not None:
-        elapsed_h = (datetime.utcnow() - _alerted_at).total_seconds() / 3600
+        elapsed_h = (datetime.now(timezone.utc).replace(tzinfo=None) - _alerted_at).total_seconds() / 3600
         if elapsed_h < settings.alert_timeout_hours:
             logger.info("Smell check skipped — alerted state active (recovery job handles it)")
             return
@@ -80,7 +80,7 @@ async def _run_check() -> None:
         f"wind: {wind.direction_deg:.0f}° {wind.speed_ms:.1f}m/s"
     )
 
-    if risk.score <= 0.0:
+    if risk.score < settings.risk_threshold:
         return
 
     alert_id = await send_smell_alert(
@@ -94,7 +94,7 @@ async def _run_check() -> None:
         risk_score=risk.score,
     )
     if alert_id is not None:
-        _alerted_at = datetime.utcnow()
+        _alerted_at = datetime.now(timezone.utc).replace(tzinfo=None)
         _schedule_recovery()
 
 
@@ -103,7 +103,7 @@ async def _recovery_check() -> None:
     if _alerted_at is None:
         return
 
-    elapsed_h = (datetime.utcnow() - _alerted_at).total_seconds() / 3600
+    elapsed_h = (datetime.now(timezone.utc).replace(tzinfo=None) - _alerted_at).total_seconds() / 3600
     if elapsed_h >= settings.alert_timeout_hours:
         logger.info("Recovery check: timeout expired — resetting to normal")
         _alerted_at = None
@@ -123,7 +123,7 @@ async def _recovery_check() -> None:
         risk_score = risk.score
         logger.info(f"Recovery: risk={risk_score:.2f} | elapsed={elapsed_h:.2f}h")
 
-    if risk_score <= 0.0:
+    if risk_score < settings.risk_threshold:
         logger.info("Recovery check: risk cleared — sending all-clear")
         await send_all_clear()
         _alerted_at = None

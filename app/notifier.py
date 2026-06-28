@@ -1,5 +1,5 @@
 import logging
-from datetime import datetime
+from datetime import datetime, timezone
 
 from sqlalchemy import desc, select
 from sqlalchemy.orm import selectinload
@@ -28,6 +28,8 @@ def get_application() -> Application:
         )
         _application.add_handler(CallbackQueryHandler(_handle_feedback, pattern=r"^feedback:"))
         _application.add_handler(CallbackQueryHandler(_handle_vessel_confirm, pattern=r"^smell_vessel:"))
+        _application.add_handler(CommandHandler("start", _handle_start_command))
+        _application.add_handler(CommandHandler("help", _handle_help_command))
         _application.add_handler(CommandHandler("smell", _handle_smell_command))
         _application.add_handler(CommandHandler("status", _handle_status_command))
         _application.add_handler(CommandHandler("forecast", _handle_forecast_command))
@@ -66,12 +68,12 @@ async def _handle_feedback(update: Update, context) -> None:
         existing = result.scalars().first()
         if existing:
             existing.feedback_type = feedback_type
-            existing.reported_at = datetime.utcnow()
+            existing.reported_at = datetime.now(timezone.utc).replace(tzinfo=None)
         else:
             session.add(AlertFeedback(
                 alert_id=alert_id,
                 feedback_type=feedback_type,
-                reported_at=datetime.utcnow(),
+                reported_at=datetime.now(timezone.utc).replace(tzinfo=None),
             ))
         await session.commit()
 
@@ -83,6 +85,30 @@ async def _handle_feedback(update: Update, context) -> None:
         pass
 
     logger.info(f"Feedback '{feedback_type}' recorded for alert {alert_id_str}")
+
+
+async def _handle_start_command(update: Update, context) -> None:
+    await update.message.reply_text(
+        "👋 Привет! Я *Нюхослав* — слежу за танкерами в порту и предупреждаю, "
+        "когда ветер может принести запах нефти к тебе домой.\n\n"
+        "Получай автоматические тревоги и используй /help для списка команд.",
+        parse_mode="Markdown",
+    )
+
+
+async def _handle_help_command(update: Update, context) -> None:
+    await update.message.reply_text(
+        "📖 *Команды Нюхослава*\n\n"
+        "/status — текущая обстановка: ветер и суда в порту\n"
+        "/forecast — прогноз риска запаха на 12 часов\n"
+        "/smell — сообщить о запахе вручную\n"
+        "/history — последние 10 автоматических тревог\n\n"
+        "Автоматические тревоги приходят, когда:\n"
+        "• танкер стоит в порту достаточно долго\n"
+        "• ветер дует в сторону твоего адреса\n"
+        "• скорость ветра достаточная",
+        parse_mode="Markdown",
+    )
 
 
 async def _handle_smell_command(update: Update, context) -> None:
@@ -160,7 +186,7 @@ async def _handle_vessel_confirm(update: Update, context) -> None:
     except ValueError:
         return
 
-    now = datetime.utcnow()
+    now = datetime.now(timezone.utc).replace(tzinfo=None)
     vessel_name = None
 
     async with AsyncSessionLocal() as session:
@@ -204,12 +230,12 @@ async def _handle_status_command(update: Update, context) -> None:
     wind = await get_latest_wind()
     vessels = await get_docked_vessels()
 
-    now_str = datetime.utcnow().strftime("%H:%M UTC")
+    now_str = datetime.now(timezone.utc).replace(tzinfo=None).strftime("%H:%M UTC")
     lines = [f"📊 *Обстановка* ({now_str})\n"]
 
     if wind:
         compass = _degrees_to_compass(wind.direction_deg)
-        age_min = int((datetime.utcnow() - wind.recorded_at).total_seconds() / 60)
+        age_min = int((datetime.now(timezone.utc).replace(tzinfo=None) - wind.recorded_at).total_seconds() / 60)
         lines.append(f"💨 Ветер: {wind.direction_deg:.0f}° ({compass}), {wind.speed_ms:.1f} м/с _{age_min} мин назад_")
     else:
         lines.append("💨 Ветер: данные недоступны")
@@ -344,7 +370,7 @@ async def send_smell_alert(
 
     async with AsyncSessionLocal() as session:
         alert = SmellAlert(
-            sent_at=datetime.utcnow(),
+            sent_at=datetime.now(timezone.utc).replace(tzinfo=None),
             vessel_id=vessel_id,
             visit_id=visit_id,
             wind_direction=wind_direction,

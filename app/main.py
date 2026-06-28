@@ -40,10 +40,11 @@ async def lifespan(app: FastAPI):
         await tg.initialize()
         await tg.start()
         await tg.bot.set_my_commands([
-            BotCommand("smell", "Сообщить о запахе"),
             BotCommand("status", "Текущая обстановка"),
             BotCommand("forecast", "Прогноз риска на 12ч"),
+            BotCommand("smell", "Сообщить о запахе"),
             BotCommand("history", "История тревог"),
+            BotCommand("help", "Список команд"),
         ])
         await tg.updater.start_polling(drop_pending_updates=True)
 

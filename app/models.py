@@ -1,4 +1,4 @@
-from datetime import datetime
+from datetime import datetime, timezone
 from sqlalchemy import String, Integer, Float, DateTime, BigInteger, Text, ForeignKey
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -19,6 +19,7 @@ class Vessel(Base):
 
     visits: Mapped[list["VesselPortVisit"]] = relationship(back_populates="vessel")
     alerts: Mapped[list["SmellAlert"]] = relationship(back_populates="vessel")
+    sightings: Mapped[list["SmellSighting"]] = relationship(back_populates="vessel", foreign_keys="SmellSighting.vessel_id")
 
     @property
     def display_name(self) -> str:
@@ -39,10 +40,11 @@ class VesselPortVisit(Base):
 
     vessel: Mapped["Vessel"] = relationship(back_populates="visits")
     alerts: Mapped[list["SmellAlert"]] = relationship(back_populates="visit")
+    sightings: Mapped[list["SmellSighting"]] = relationship(back_populates="visit", foreign_keys="SmellSighting.visit_id")
 
     @property
     def duration_hours(self) -> float:
-        end = self.left_at or datetime.utcnow()
+        end = self.left_at or datetime.now(timezone.utc).replace(tzinfo=None)
         return (end - self.entered_at).total_seconds() / 3600
 
 
@@ -97,5 +99,5 @@ class SmellSighting(Base):
     stationary_since: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     stationary_hours: Mapped[float | None] = mapped_column(Float, nullable=True)
 
-    vessel: Mapped["Vessel | None"] = relationship()
-    visit: Mapped["VesselPortVisit | None"] = relationship()
+    vessel: Mapped["Vessel | None"] = relationship(back_populates="sightings", foreign_keys=[vessel_id])
+    visit: Mapped["VesselPortVisit | None"] = relationship(back_populates="sightings", foreign_keys=[visit_id])

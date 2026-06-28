@@ -1,6 +1,6 @@
 import pytest
 import pytest_asyncio
-from datetime import datetime
+from datetime import datetime, timezone
 from unittest.mock import AsyncMock, MagicMock, patch
 
 from sqlalchemy import select
@@ -82,7 +82,7 @@ def _make_query(data: str, message_text: str = "Alert text"):
 async def test_feedback_creates_row(db_session):
     # Seed a SmellAlert row
     alert = SmellAlert(
-        sent_at=datetime.utcnow(),
+        sent_at=datetime.now(timezone.utc).replace(tzinfo=None),
         wind_direction=0.0,
         wind_speed=5.0,
         risk_score=0.5,
@@ -109,7 +109,7 @@ async def test_feedback_creates_row(db_session):
 @pytest.mark.asyncio
 async def test_feedback_dedup_same_button_twice(db_session):
     alert = SmellAlert(
-        sent_at=datetime.utcnow(),
+        sent_at=datetime.now(timezone.utc).replace(tzinfo=None),
         wind_direction=0.0,
         wind_speed=5.0,
         risk_score=0.5,
@@ -136,7 +136,7 @@ async def test_feedback_dedup_same_button_twice(db_session):
 @pytest.mark.asyncio
 async def test_feedback_dedup_both_buttons(db_session):
     alert = SmellAlert(
-        sent_at=datetime.utcnow(),
+        sent_at=datetime.now(timezone.utc).replace(tzinfo=None),
         wind_direction=0.0,
         wind_speed=5.0,
         risk_score=0.5,
@@ -164,7 +164,7 @@ async def test_feedback_dedup_both_buttons(db_session):
 @pytest.mark.asyncio
 async def test_feedback_invalid_type_no_row(db_session):
     alert = SmellAlert(
-        sent_at=datetime.utcnow(),
+        sent_at=datetime.now(timezone.utc).replace(tzinfo=None),
         wind_direction=0.0,
         wind_speed=5.0,
         risk_score=0.5,
