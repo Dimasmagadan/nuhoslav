@@ -78,7 +78,13 @@ async def _fetch_vessels(max_age_days: int = 2) -> list[dict]:
             "seen_date": seen_date,
         })
 
-    return results
+    seen: set[str] = set()
+    deduped = []
+    for v in results:
+        if v["mmsi"] not in seen:
+            seen.add(v["mmsi"])
+            deduped.append(v)
+    return deduped
 
 
 async def run_goradar_poller() -> None:
@@ -87,7 +93,10 @@ async def run_goradar_poller() -> None:
     while True:
         try:
             vessels = await _fetch_vessels()
-            logger.info(f"[goradar] Fetched {len(vessels)} recent vessel(s)")
+            if not vessels:
+                logger.warning("[goradar] No vessels parsed — page structure may have changed")
+            else:
+                logger.info(f"[goradar] Fetched {len(vessels)} recent vessel(s)")
             for v in vessels:
                 await register_scraped_vessel(
                     mmsi=v["mmsi"],
