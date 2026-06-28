@@ -9,7 +9,7 @@ from telegram.ext import Application, CallbackQueryHandler, CommandHandler
 from config import settings
 from database import AsyncSessionLocal
 from models import AlertFeedback, SmellAlert, SmellSighting, Vessel, VesselPortVisit
-from smell_estimator import calculate_risk
+from smell_estimator import RiskResult, calculate_risk
 from vessel_tracker import get_docked_vessels
 from wind_checker import fetch_hourly_forecast, get_latest_wind
 
@@ -400,6 +400,55 @@ async def send_smell_alert(
                 logger.info(f"Alert {alert_id} sent to {chat_id}")
             except Exception as e:
                 logger.error(f"Failed to send Telegram alert to {chat_id}: {e}")
+
+        alert.telegram_message_id = first_msg_id
+        await session.commit()
+
+    return alert_id
+
+
+async def send_weather_warning_no_vessels(
+    wind_direction: float,
+    wind_speed: float,
+    weather_risk: RiskResult,
+) -> int | None:
+    """Soft warning: weather is risky but AIS vessel data is unavailable."""
+    if not settings.telegram_bot_token or not settings.telegram_chat_ids:
+        logger.warning("Telegram не настроен — мягкое предупреждение пропущено")
+        return None
+
+    compass = _degrees_to_compass(wind_direction)
+    text = (
+        f"⚠️ Данные о судах недоступны\n\n"
+        f"💨 Ветер: {wind_direction:.0f}° ({compass}), {wind_speed:.1f} м/с\n"
+        f"🌫 Ветер дует в сторону вашего дома.\n"
+        f"Данные AIS временно недоступны — нельзя проверить наличие судов в порту.\n"
+        f"Возможно повышенный риск запаха."
+    )
+
+    async with AsyncSessionLocal() as session:
+        alert = SmellAlert(
+            sent_at=datetime.now(timezone.utc).replace(tzinfo=None),
+            vessel_id=None,
+            visit_id=None,
+            wind_direction=wind_direction,
+            wind_speed=wind_speed,
+            risk_score=weather_risk.score,
+            vessel_docked_hours=0.0,
+        )
+        session.add(alert)
+        await session.flush()
+        alert_id = alert.id
+
+        first_msg_id = None
+        for chat_id in settings.telegram_chat_ids:
+            try:
+                msg = await get_application().bot.send_message(chat_id=chat_id, text=text)
+                if first_msg_id is None:
+                    first_msg_id = msg.message_id
+                logger.info(f"Weather warning {alert_id} sent to {chat_id}")
+            except Exception as e:
+                logger.error(f"Failed to send weather warning to {chat_id}: {e}")
 
         alert.telegram_message_id = first_msg_id
         await session.commit()

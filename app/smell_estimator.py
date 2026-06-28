@@ -27,6 +27,26 @@ def _angle_diff(a: float, b: float) -> float:
     return diff if diff <= 180 else 360 - diff
 
 
+def evaluate_weather_risk(wind_from_deg: float, wind_speed_ms: float) -> RiskResult:
+    """Weather-only risk gate — no vessel data needed. Returns blocked_by=None if conditions could carry smell."""
+    port_to_user = _bearing(
+        settings.port_center_lat, settings.port_center_lon,
+        settings.user_lat, settings.user_lon,
+    )
+    wind_toward = (wind_from_deg + 180) % 360
+    diff = _angle_diff(wind_toward, port_to_user)
+
+    if wind_speed_ms < settings.wind_speed_min_ms:
+        return RiskResult(0.0, diff, wind_toward, port_to_user, "wind_too_weak")
+
+    if diff > settings.wind_angle_tolerance_deg:
+        return RiskResult(0.0, diff, wind_toward, port_to_user, "wrong_direction")
+
+    angle_factor = 1.0 - (diff / settings.wind_angle_tolerance_deg)
+    speed_factor = min(wind_speed_ms / 8.0, 1.0)
+    return RiskResult(angle_factor * speed_factor, diff, wind_toward, port_to_user, None)
+
+
 def calculate_risk(wind_from_deg: float, wind_speed_ms: float, docked_hours: float) -> RiskResult:
     """
     Returns a risk score 0–1.

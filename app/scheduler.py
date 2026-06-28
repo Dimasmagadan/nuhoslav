@@ -5,9 +5,9 @@ from datetime import datetime, timedelta, timezone
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 
 from config import settings
-from notifier import send_all_clear, send_smell_alert
-from smell_estimator import calculate_risk
-from vessel_tracker import close_stale_visits, get_docked_vessels
+from notifier import send_all_clear, send_smell_alert, send_weather_warning_no_vessels
+from smell_estimator import calculate_risk, evaluate_weather_risk
+from vessel_tracker import close_stale_visits, get_ais_data_age_minutes, get_docked_vessels
 from wind_checker import fetch_and_store_wind
 
 logger = logging.getLogger(__name__)
@@ -25,20 +25,14 @@ async def check_cycle() -> None:
         await _run_check()
 
 
-async def _evaluate_risk():
-    """Returns (wind, worst_vessel_or_none)."""
-    wind = await fetch_and_store_wind()
-    if wind is None:
-        return None, None
-    tankers = await get_docked_vessels()
-    qualifying = [
-        t for t in tankers
+async def _get_qualifying_tankers() -> list[dict]:
+    """Return docked tankers that have been in port long enough to matter."""
+    vessels = await get_docked_vessels()
+    return [
+        t for t in vessels
         if (t["is_tanker"] or t["vessel_type"] is None)
         and t["docked_hours"] >= settings.vessel_docked_hours
     ]
-    if not qualifying:
-        return wind, None
-    return wind, max(qualifying, key=lambda t: t["docked_hours"])
 
 
 def _schedule_recovery() -> None:
@@ -65,14 +59,39 @@ async def _run_check() -> None:
             return
         _alerted_at = None  # timeout expired, reset silently
 
-    wind, worst = await _evaluate_risk()
+    # Gate 1: weather conditions — skip vessel check entirely if wind is harmless
+    wind = await fetch_and_store_wind()
     if wind is None:
         logger.warning("No wind data — skipping risk evaluation")
         return
-    if worst is None:
+
+    weather_risk = evaluate_weather_risk(wind.direction_deg, wind.speed_ms)
+    if weather_risk.blocked_by:
+        logger.info(f"Weather not risky ({weather_risk.blocked_by}) — skipping vessel check")
+        return
+
+    logger.info(
+        f"Weather gate passed | wind: {wind.direction_deg:.0f}° {wind.speed_ms:.1f}m/s "
+        f"| angle_diff: {weather_risk.angle_diff:.1f}°"
+    )
+
+    # Gate 2: AIS data freshness — warn if we can't check for vessels
+    ais_age = get_ais_data_age_minutes()
+    if ais_age is None or ais_age > settings.ais_stale_threshold_minutes:
+        logger.warning(f"AIS data unavailable (age={ais_age} min) — sending soft weather warning")
+        alert_id = await send_weather_warning_no_vessels(wind.direction_deg, wind.speed_ms, weather_risk)
+        if alert_id is not None:
+            _alerted_at = datetime.now(timezone.utc).replace(tzinfo=None)
+            _schedule_recovery()
+        return
+
+    # Gate 3: qualifying tankers present
+    qualifying = await _get_qualifying_tankers()
+    if not qualifying:
         logger.info("No qualifying tankers")
         return
 
+    worst = max(qualifying, key=lambda t: t["docked_hours"])
     risk = calculate_risk(wind.direction_deg, wind.speed_ms, worst["docked_hours"])
     logger.info(
         f"Risk: {risk.score:.2f} | blocked_by: {risk.blocked_by} | "
@@ -110,15 +129,23 @@ async def _recovery_check() -> None:
         return
 
     logger.info("=== Recovery check started ===")
-    wind, worst = await _evaluate_risk()
-
+    wind = await fetch_and_store_wind()
     if wind is None:
         logger.warning("Recovery check: no wind data — rescheduling")
         _schedule_recovery()
         return
 
+    weather_risk = evaluate_weather_risk(wind.direction_deg, wind.speed_ms)
+    if weather_risk.blocked_by:
+        logger.info(f"Recovery check: weather cleared ({weather_risk.blocked_by}) — sending all-clear")
+        await send_all_clear()
+        _alerted_at = None
+        return
+
     risk_score = 0.0
-    if worst is not None:
+    qualifying = await _get_qualifying_tankers()
+    if qualifying:
+        worst = max(qualifying, key=lambda t: t["docked_hours"])
         risk = calculate_risk(wind.direction_deg, wind.speed_ms, worst["docked_hours"])
         risk_score = risk.score
         logger.info(f"Recovery: risk={risk_score:.2f} | elapsed={elapsed_h:.2f}h")

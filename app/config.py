@@ -23,6 +23,7 @@ class Settings(BaseSettings):
     check_interval_minutes: int = 30
     risk_threshold: float = 0.15         # minimum score to trigger an alert
     stale_visit_minutes: int = 90        # close visit if no AIS update for this long
+    ais_stale_threshold_minutes: int = 60  # AIS data older than this is considered unavailable
 
     telegram_bot_token: str = ""
     telegram_chat_id: str = ""          # comma-separated for multiple recipients

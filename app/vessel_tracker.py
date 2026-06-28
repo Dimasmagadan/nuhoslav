@@ -18,6 +18,7 @@ AISSTREAM_URL = "wss://stream.aisstream.io/v0/stream"
 _vessel_last_seen: dict[str, datetime] = {}
 _active_visits: dict[str, int] = {}  # mmsi -> visit.id
 _vessel_positions: dict[str, tuple[float, float]] = {}  # mmsi -> (lat, lon)
+_last_ais_message_at: datetime | None = None  # updated on each valid AIS position report
 
 
 async def restore_state() -> None:
@@ -75,6 +76,7 @@ async def _close_visit(mmsi: str) -> None:
 
 
 async def _handle_position_report(msg: dict) -> None:
+    global _last_ais_message_at
     meta = msg.get("MetaData", {})
     mmsi = str(meta.get("MMSI", "")).strip()
     if not mmsi:
@@ -84,6 +86,8 @@ async def _handle_position_report(msg: dict) -> None:
     lon = meta.get("longitude") or meta.get("Longitude")
     if lat is None or lon is None:
         return
+
+    _last_ais_message_at = datetime.now(timezone.utc).replace(tzinfo=None)
 
     in_port = (
         settings.port_lat_min <= lat <= settings.port_lat_max
@@ -132,6 +136,13 @@ async def _handle_static_data(msg: dict) -> None:
         await session.commit()
 
 
+def get_ais_data_age_minutes() -> float | None:
+    """Returns minutes since last valid AIS position report, or None if never received."""
+    if _last_ais_message_at is None:
+        return None
+    return (datetime.now(timezone.utc).replace(tzinfo=None) - _last_ais_message_at).total_seconds() / 60
+
+
 async def close_stale_visits() -> None:
     """Fallback: mark vessels as departed if not seen for >90 minutes (e.g. WebSocket gap)."""
     now = datetime.now(timezone.utc).replace(tzinfo=None)
@@ -177,11 +188,12 @@ async def run_aisstream() -> None:
         logger.warning("AISSTREAM_API_KEY not set — vessel tracking disabled")
         return
 
+    # AISstream expects [[top-left], [bottom-right]] = [[max_lat, min_lon], [min_lat, max_lon]]
     subscribe_msg = {
         "APIKey": settings.aisstream_api_key,
         "BoundingBoxes": [[
-            [settings.port_lat_min, settings.port_lon_min],
-            [settings.port_lat_max, settings.port_lon_max],
+            [settings.port_lat_max, settings.port_lon_min],
+            [settings.port_lat_min, settings.port_lon_max],
         ]],
         "FilterMessageTypes": ["PositionReport", "ShipStaticData"],
     }
