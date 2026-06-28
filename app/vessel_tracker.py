@@ -1,7 +1,7 @@
 import asyncio
 import json
 import logging
-from datetime import datetime, timezone
+from datetime import date, datetime, timezone
 
 import websockets
 from sqlalchemy import select
@@ -180,6 +180,33 @@ async def get_docked_vessels() -> list[dict]:
         }
         for visit, vessel in rows
     ]
+
+
+async def register_scraped_vessel(
+    mmsi: str,
+    name: str | None,
+    imo: str | None,
+    vessel_type: int | None,
+    seen_date: date,
+) -> None:
+    """Register a vessel seen via web scraping. Opens a port visit if not already active."""
+    now = datetime.now(timezone.utc).replace(tzinfo=None)
+
+    async with AsyncSessionLocal() as session:
+        vessel = await _upsert_vessel(session, mmsi, name=name, imo=imo, vessel_type=vessel_type)
+
+        if mmsi not in _active_visits:
+            entered_at = datetime(seen_date.year, seen_date.month, seen_date.day, 0, 0, 0)
+            visit = VesselPortVisit(vessel_id=vessel.id, entered_at=entered_at)
+            session.add(visit)
+            await session.flush()
+            _active_visits[mmsi] = visit.id
+            logger.info(f"[goradar] Vessel {vessel.display_name} registered in port (last seen {seen_date})")
+
+        await session.commit()
+
+    # Keep vessel fresh so close_stale_visits() doesn't evict it until next poll misses it
+    _vessel_last_seen[mmsi] = now
 
 
 async def run_aisstream() -> None:

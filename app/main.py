@@ -15,6 +15,7 @@ from database import engine, get_db
 from models import AlertFeedback, SmellAlert, Vessel, VesselPortVisit
 from notifier import get_application
 from scheduler import check_cycle, start_scheduler, stop_scheduler
+from goradar_scraper import run_goradar_poller
 from vessel_tracker import get_docked_vessels, restore_state, run_aisstream
 from wind_checker import get_latest_wind
 
@@ -24,16 +25,19 @@ logger = logging.getLogger(__name__)
 templates = Jinja2Templates(directory="templates")
 
 _aisstream_task: asyncio.Task | None = None
+_goradar_task: asyncio.Task | None = None
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    global _aisstream_task
+    global _aisstream_task, _goradar_task
 
     await restore_state()
 
     if settings.aisstream_api_key:
         _aisstream_task = asyncio.create_task(run_aisstream())
+
+    _goradar_task = asyncio.create_task(run_goradar_poller())
 
     if settings.telegram_bot_token:
         tg = get_application()
@@ -60,6 +64,9 @@ async def lifespan(app: FastAPI):
     if _aisstream_task:
         _aisstream_task.cancel()
         await asyncio.gather(_aisstream_task, return_exceptions=True)
+    if _goradar_task:
+        _goradar_task.cancel()
+        await asyncio.gather(_goradar_task, return_exceptions=True)
     await engine.dispose()
 
 
